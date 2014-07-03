@@ -1,0 +1,100 @@
+import time
+import logging
+
+import gevent
+import gevent.socket
+
+_logger = logging.getLogger(__name__)
+
+class NsqConnectGiveUpError(Exception):
+    pass
+
+
+class Node(object):
+    def __init__(self, server_host):
+        self.__server_host = server_host
+
+    def __hash__(self):
+        return ('server', self.__server_host).__hash__()
+
+    def __eq__(self, o):
+        if o is None:
+            return False
+        elif self.__class__ != o.__class__:
+            return False
+        elif self.__server_host != o.__server_host:
+            return False
+
+        return True
+
+    def __ne__(self, o):
+        return not (self == o)
+
+    def __str__(self):
+        return ('<NODE [%s] [%s]>' % 
+                (self.__class__.__name__, self.__server_host))
+
+    @property
+    def server_host(self):
+        return self.__server_host
+
+    def connect(self):
+        raise NotImplementedError()
+
+
+class ServerNode(Node):
+    """Represents a node that was explicitly prescribed."""
+
+    def connect(self):
+        """Connect the server. We expect this to implement backoff and all 
+        connection logistics for servers that were explicitly prescribed to us.
+        """ 
+
+        stop_epoch = time.time() + \
+                        nsq.config.client.MAXIMUM_CONNECT_ATTEMPT_PERIOD_S
+
+        timeout_s = nsq.config.client.INITIAL_CONNECT_FAIL_WAIT_S
+        backoff_rate = nsq.config.client.CONNECT_FAIL_WAIT_BACKOFF_RATE
+
+        while stop_epoch >= time.time():
+            try:
+                c = gevent.socket.create_connection(self.server_host)
+            except gevent.socket.error:
+                _logger.exception("Could not connect to discovered server: "
+                                  "[%s]", self.server_host)
+            else:
+                _logger.debug("Connection established to discovered server: "
+                              "[%s]", self.server_host)
+                return c
+
+            timeout_s = min(timeout_s * backoff_rate,
+                            nsq.config.client.MAXIMUM_CONNECT_FAIL_WAIT_S)
+
+            _logger.info("Waiting for (%d) seconds before reconnecting.", 
+                         timeout_s)
+
+            gevent.sleep(timeout_s)
+
+        raise NsqConnectGiveUpError()
+
+
+class DiscoveredNode(Node):
+    """Represents a node that we found via lookup servers."""
+
+    def connect(self):
+        """Connect the server. We expect this to implement backoff and all 
+        connection logistics for servers that were discovered via a lookup 
+        node.
+        """ 
+
+        # According to the docs, a nsqlookupd-discovered server should fall-out 
+        # of the lineup immediately if it fails. If it comes back, nsqlookupd 
+        # will give it back to us.
+
+        try:
+            return gevent.socket.create_connection(self.server_host)
+        except gevent.socket.error:
+            _logger.exception("Could not connect to explicit server: [%s]",
+                              self.server_host)
+
+            raise NsqConnectGiveUpError()

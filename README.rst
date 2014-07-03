@@ -1,0 +1,1 @@
+nsq/resources/README.rst

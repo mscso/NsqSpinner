@@ -1,0 +1,8 @@
+*pyc
+/build/
+/dist/
+/bin/
+/lib/
+/include/
+/nsq.egg-info/
+/.Python
