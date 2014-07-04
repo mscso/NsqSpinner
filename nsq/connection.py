@@ -50,8 +50,6 @@ class _ManagedConnection(object):
         self.__c.send(nsq.config.protocol.MAGIC_IDENTIFIER)
 
     def __process_frame_response(self, data):
-        _logger.debug("Received RESPONSE frame:\n%s", data)
-
         # Heartbeats, which arrive as responses, won't interfere with the
         # responses to commands since we'll handle it right here.
         if data == nsq.config.protocol.HEARTBEAT_RESPONSE:
@@ -63,7 +61,7 @@ class _ManagedConnection(object):
         # The very first command is an IDENTIFY, so this is the very first true
         # response.
         elif self.__last_command == nsq.identify.IDENTIFY_COMMAND:
-            _logger.debug("Received IDENTIFY response.")
+            _logger.debug("Received IDENTIFY response:\n%s", data)
 
             self.__last_command = None
             self.__identify.process_response(data)
@@ -72,13 +70,13 @@ class _ManagedConnection(object):
         # for the next response to be set. Each connection works in a serial
         # fashion.
         else:
-            _logger.debug("Received response:\n%s", data)
+            _logger.debug("Received response (%d bytes).", len(data))
 
             self.__response_success = data
             self.__response_event.set()
 
     def __process_frame_error(self, data):
-        _logger.debug("Received ERROR frame:\n%s", data)
+        _logger.error("Received ERROR frame: %s", data)
         self.__response_error = data
         self.__response_event.set()
 
@@ -90,7 +88,9 @@ class _ManagedConnection(object):
                 body=body)
 # TODO(dustin): We still need to process incoming messages (jobs), but only if 
 #               we're running as a consumer (if we have RDY > 0).
-        _logger.debug("Received MESSAGE frame:\n%s", m)
+        _logger.debug("Received MESSAGE frame: [%s] (%d bytes)", 
+                      message_id, len(body))
+
         self.__message_q.put(m)
 
     def __send_message_primitive(

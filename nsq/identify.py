@@ -30,8 +30,10 @@ class Identify(object):
                      self.__cached])
 
     def process_response(self, data):
-        _logger.debug("Received identify response:\n%s", data)
+        response = json.loads(data)
+
 # TODO(dustin): Finish.
+        pass
 
     def __push(self, k, v):
         self.__parameters[k] = v

@@ -7,7 +7,7 @@ class _Nodes(object):
         raise NotImplementedError()
 
 
-class _ServerNodes(Nodes):
+class _ServerNodes(_Nodes):
     def __init__(self, server_hosts):
         self.__server_hosts = server_hosts
 
@@ -27,7 +27,7 @@ class ConsumerNodes(_ServerNodes):
     pass
 
 
-class LookupNodes(Nodes):
+class LookupNodes(_Nodes):
     """Used by a consumer to specify an NSQLOOKUPD collection, with which to 
     *derive* a set of NSQD servers.
     """
