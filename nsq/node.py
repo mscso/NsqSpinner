@@ -54,6 +54,8 @@ class DiscoveredNode(Node):
         node.
         """ 
 
+        _logger.debug("Connecting to discovered node: [%s]", self.server_host)
+
         stop_epoch = time.time() + \
                         nsq.config.client.MAXIMUM_CONNECT_ATTEMPT_PERIOD_S
 
@@ -69,8 +71,9 @@ class DiscoveredNode(Node):
                 _logger.exception("Could not connect to discovered server: "
                                   "[%s]", self.server_host)
             else:
-                _logger.debug("Connection established to discovered server: "
-                              "[%s]", self.server_host)
+                _logger.info("Discovered server-node connected: [%s]", 
+                             self.server_host)
+                
                 return c
 
             timeout_s = min(timeout_s * backoff_rate,
@@ -92,12 +95,15 @@ class ServerNode(Node):
         for servers that were explicitly prescribed to us.
         """ 
 
+        _logger.debug("Connecting to explicit server node: [%s]", 
+                      self.server_host)
+
         # According to the docs, a nsqlookupd-discovered server should fall-out 
         # of the lineup immediately if it fails. If it comes back, nsqlookupd 
         # will give it back to us.
 
         try:
-            return gevent.socket.create_connection(
+            c = gevent.socket.create_connection(
                     self.server_host, 
                     timeout=1)
         except gevent.socket.error:
@@ -105,3 +111,6 @@ class ServerNode(Node):
                               self.server_host)
 
             raise nsq.exceptions.NsqConnectGiveUpError()
+
+        _logger.info("Explicit server-node connected: [%s]", self.server_host)
+        return c

@@ -9,4 +9,4 @@ class Command(object):
 
     def nop(self):
         _logger.debug("Sending NOP.")
-        self.__c.send("NOP\n")
+        self.__c.send_command('NOP', wait_for_response=False)

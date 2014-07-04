@@ -42,3 +42,6 @@ class Consumer(nsq.master.Master):
         self.__discover(using_lookup)
 
         super(Consumer, self).run(*args, **kwargs)
+
+        # Block until we're told to terminate.
+        self.terminate_ev.wait()

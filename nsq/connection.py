@@ -24,11 +24,12 @@ _logger = logging.getLogger(__name__)
 
 
 class _ManagedConnection(object):
-    def __init__(self, connection, identify):
+    def __init__(self, connection, identify, message_q):
         self.__c = connection
         self.__identify = identify
+        self.__message_q = message_q
 
-        self.__command = nsq.command.Command(self.__c)
+        self.__command = nsq.command.Command(self)
         self.__last_command = None
 
         # Receives the response to the last command.
@@ -86,14 +87,13 @@ class _ManagedConnection(object):
                 attempts=attempts, 
                 message_id=message_id, 
                 body=body)
-# TODO(dustin): We still need to process incoming messages (jobs), but only if 
-#               we're running as a consumer (if we have RDY > 0).
+
         _logger.debug("Received MESSAGE frame: [%s] (%d bytes)", 
                       message_id, len(body))
 
-        self.__message_q.put(m)
+        self.__message_q.add(m)
 
-    def __send_message_primitive(
+    def __send_command_primitive(
             self, 
             command, 
             parts):
@@ -113,27 +113,31 @@ class _ManagedConnection(object):
 
         self.__outgoing_q.put((command, parts))
 
-    def send_message(self, command, parts):
+    def send_command(self, command, parts=None, wait_for_response=True):
+        if parts is None:
+            parts = []
+
         self.queue_message(command, parts)
 
-        _logger.debug("Waiting for response to [%s].", command)
-        self.__response_event.wait()
+        if wait_for_response is True:
+            _logger.debug("Waiting for response to [%s].", command)
+            self.__response_event.wait()
 
-        if self.__response_error is not None:
-            (response_error, self.__response_error) = (self.__response_error, None)
-            self.__response_event.clear()
+            if self.__response_error is not None:
+                (response_error, self.__response_error) = (self.__response_error, None)
+                self.__response_event.clear()
 
-            raise nsq.exceptions.NsqErrorResponseError(response_error)
+                raise nsq.exceptions.NsqErrorResponseError(response_error)
 
-        elif self.__response_success is not None:
-            (response, self.__response_success) = (self.__response_success, None)
-            self.__response_event.clear()
+            elif self.__response_success is not None:
+                (response, self.__response_success) = (self.__response_success, None)
+                self.__response_event.clear()
 
-        else:
-            raise ValueError("Could not determine the response for this "
-                             "message.")
+            else:
+                raise ValueError("Could not determine the response for this "
+                                 "message.")
 
-        return response
+            return response
 
     def __process_message(self, frame_type, data):
         if frame_type == nsq.constants.FT_RESPONSE:
@@ -177,12 +181,15 @@ class _ManagedConnection(object):
         self.__identify.enqueue(self)
 
         while 1:
+# TODO(dustin): Consider breaking the loop if we haven't yet retried to 
+#               reconnect a couple of times. A connection will automatically be 
+#               reattempted.
             status = gevent.select.select(
                         [self.__c], 
                         [], 
                         [], 
                         timeout=0)#nsq.config.protocol.READ_SELECT_TIMEOUT_S)
-# TODO(dustin): We're not receiving the heartbeat (we're not receiving anything).
+
             if status[0]:
                 self.__read_frame()
 
@@ -194,16 +201,18 @@ class _ManagedConnection(object):
                 _logger.debug("Dequeued outgoing command ((%d) remaining): "
                               "[%s]", self.__outgoing_q.qsize(), command)
 
-                self.__send_message_primitive(command, parts)
+                self.__send_command_primitive(command, parts)
 
 # TODO(dustin): Move this to config.
             gevent.sleep(.1)
 
 
 class Connection(object):
-    def __init__(self, node, identify):
+    def __init__(self, node, identify, message_q):
         self.__node = node
         self.__identify = identify
+        self.__message_q = message_q
+        self.__is_connected = False
 
     def __connect(self):
         _logger.debug("Connecting node: [%s]", self.__node)
@@ -212,14 +221,21 @@ class Connection(object):
         _logger.debug("Node connected and being handed-off to be managed: "
                       "[%s]", self.__node)
 
+        self.__is_connected = True
+
         mc = _ManagedConnection(
                 c, 
-                self.__identify)
+                self.__identify,
+                self.__message_q)
 
         try:
             mc.interact()
         except nsq.exceptions.NsqConnectGiveUpError:
             raise
+
+        # Technically, interact() will never return, so we'll never get here. 
+        # But, this is logical.
+        self.__is_connected = False
 
     def run(self):
         """Connect the server, and maintain the connection. This shall not 
@@ -228,5 +244,8 @@ class Connection(object):
         """
 
         while 1:
-            _logger.debug("Connecting to: [%s]", self.__node)
             self.__connect()
+
+    @property
+    def is_connected(self):
+        return self.__is_connected

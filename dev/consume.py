@@ -9,6 +9,7 @@ import logging
 
 import nsq.consumer
 import nsq.node_collection
+import nsq.message_handler
 
 def _configure_logging():
     logger = logging.getLogger()
@@ -30,9 +31,21 @@ lookup_node_prefixes = [
     'http://127.0.0.1:4161'
 ]
 
+_logger = logging.getLogger(__name__)
+
 nc = nsq.node_collection.LookupNodes(lookup_node_prefixes)
 
-c = nsq.consumer.Consumer(_TOPIC, _CHANNEL, nc)
+
+class _MessageHandler(nsq.message_handler.MessageHandler):
+    def handle_incoming(self, message_q):
+        _logger.debug("Message-handler waiting for messages.")
+
+        while 1:
+            message = message_q.get()
+            
+            print("Received job:\n%s" % (message,))
+
+c = nsq.consumer.Consumer(_TOPIC, _CHANNEL, nc, _MessageHandler)
 c.identify.\
     client_id(11111).\
     heartbeat_interval(10 * 1000)

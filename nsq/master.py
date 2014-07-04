@@ -1,5 +1,6 @@
 import logging
 import gevent
+import gevent.event
 
 import nsq.config.client
 import nsq.node_collection
@@ -10,36 +11,74 @@ _logger = logging.getLogger(__name__)
 
 
 class Master(object):
-    def __init__(self):
+    def __init__(self, message_handler_cls=None):
         self.__nodes_s = set()
         self.__identify = nsq.identify.Identify().set_feature_negotiation()
+        self.__connections = []
+        self.__message_handler_cls = message_handler_cls
+        self.__message_q = gevent.queue.Queue()
+        self.__ready_ev = gevent.event.Event()
+        self.__terminate_ev = gevent.event.Event()
 
-    def run(self):
-        """Establish and maintain connections."""
+    def __start_connection(self, node):
+        _logger.debug("Creating connection object: [%s]", node)
 
+        c = nsq.connection.Connection(
+                node, 
+                self.__identify, 
+                self.__message_q)
+
+        g = gevent.spawn(c.run)
+        self.__connections.append((node, c, g))
+
+    def __manage_connections(self):
         _logger.info("Running client.")
 
-        connections = []
-
-        def start_connection(node):
-            _logger.info("Starting connection to node: [%s]", node)
-
-            c = nsq.connection.Connection(node, self.__identify)
-
-            g = gevent.spawn(c.run)
-            connections.append((node, g))
-
         # Spawn connections to all of the servers.
+
         for node in self.__nodes_s:
-            start_connection(node)
+            self.__start_connection(node)
+
+        # Spawn the message handler.
+
+        gevent.spawn(
+            self.__message_handler_cls().handle_incoming, 
+            self.__message_q)
+
+        # Wait until at least one server is connected.
+
+        _logger.info("Waiting for first connection.")
+
+        is_connected_to_one = False
+        while 1:
+
+            for (n, c, g) in self.__connections:
+                if c.is_connected is True:
+                    is_connected_to_one = True
+                    break
+
+            if is_connected_to_one is True:
+                break
+
+# TODO(dustin): Put this into config.
+            gevent.sleep(.1)
+
+        self.__ready_ev.set()
 
         # Loop, and maintain all connections.
 
+# TODO(dustin): We should set terminate_ev when we've encountered a critical 
+#               error and had to kill all of the greenlets.
+
         while 1:
             # Remove any connections that are dead.
-            connections = filter(lambda (sh, g): not g.ready(), connections)
+            self.__connections = filter(
+                                    lambda (n, c, g): not g.ready(), 
+                                    self.__connections)
 
-            connected_nodes_s = set([node for (node, g) in connections])
+            connected_nodes_s = set([node 
+                                     for (node, c, g) 
+                                     in self.__connections])
 
             # Warn if there are any still-active connections that are no longer 
             # being advertised (probably where we were given some lookup servers 
@@ -57,7 +96,7 @@ class Master(object):
 
             for node in unused_nodes_s:
                 _logger.info("We've received a new server.")
-                start_connection(node)
+                self.__start_connection(node)
             else:
                 # Are there both no unused servers and no connected servers?
                 if not connected_nodes_s:
@@ -81,6 +120,20 @@ class Master(object):
 
         self.__nodes_s = nodes_s
 
+    def run(self):
+        """Establish and maintain connections."""
+
+        gevent.spawn(self.__manage_connections)
+        self.__ready_ev.wait()
+
     @property
     def identify(self):
         return self.__identify
+
+    @property
+    def connections(self):
+        return self.__connections
+
+    @property
+    def terminate_ev(self):
+        return self.__terminate_ev
