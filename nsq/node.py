@@ -4,10 +4,13 @@ import logging
 import gevent
 import gevent.socket
 
+import nsq.config
+import nsq.exceptions
+
 _logger = logging.getLogger(__name__)
 
-class NsqConnectGiveUpError(Exception):
-    pass
+# TODO(dustin): Our create_connection() calls are taking five-seconds every 
+#               time.
 
 
 class Node(object):
@@ -42,12 +45,13 @@ class Node(object):
         raise NotImplementedError()
 
 
-class ServerNode(Node):
-    """Represents a node that was explicitly prescribed."""
+class DiscoveredNode(Node):
+    """Represents a node that we found via lookup servers."""
 
     def connect(self):
         """Connect the server. We expect this to implement backoff and all 
-        connection logistics for servers that were explicitly prescribed to us.
+        connection logistics for servers that were discovered via a lookup 
+        node.
         """ 
 
         stop_epoch = time.time() + \
@@ -58,7 +62,9 @@ class ServerNode(Node):
 
         while stop_epoch >= time.time():
             try:
-                c = gevent.socket.create_connection(self.server_host)
+                c = gevent.socket.create_connection(
+                        self.server_host, 
+                        timeout=1)
             except gevent.socket.error:
                 _logger.exception("Could not connect to discovered server: "
                                   "[%s]", self.server_host)
@@ -75,16 +81,15 @@ class ServerNode(Node):
 
             gevent.sleep(timeout_s)
 
-        raise NsqConnectGiveUpError()
+        raise nsq.exceptions.NsqConnectGiveUpError()
 
 
-class DiscoveredNode(Node):
-    """Represents a node that we found via lookup servers."""
+class ServerNode(Node):
+    """Represents a node that was explicitly prescribed."""
 
     def connect(self):
-        """Connect the server. We expect this to implement backoff and all 
-        connection logistics for servers that were discovered via a lookup 
-        node.
+        """Connect the server. We expect this to implement connection logistics 
+        for servers that were explicitly prescribed to us.
         """ 
 
         # According to the docs, a nsqlookupd-discovered server should fall-out 
@@ -92,9 +97,11 @@ class DiscoveredNode(Node):
         # will give it back to us.
 
         try:
-            return gevent.socket.create_connection(self.server_host)
+            return gevent.socket.create_connection(
+                    self.server_host, 
+                    timeout=1)
         except gevent.socket.error:
             _logger.exception("Could not connect to explicit server: [%s]",
                               self.server_host)
 
-            raise NsqConnectGiveUpError()
+            raise nsq.exceptions.NsqConnectGiveUpError()

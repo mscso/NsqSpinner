@@ -4,65 +4,28 @@ import gevent
 import nsq.config.client
 import nsq.node_collection
 import nsq.connection
+import nsq.identify
 
 _logger = logging.getLogger(__name__)
 
 
-class Client(object):
-    def __init__(self, topic, channel, node_collection):
-        assert issubclass(
-                node_collection.__class__, 
-                nsq.node_collection.Nodes) is True
-
-        self.__topic = topic
-        self.__channel = channel
-        self.__node_collection = node_collection
+class Master(object):
+    def __init__(self):
         self.__nodes_s = set()
-
-    def __discover(self, schedule_again):
-        """This runs in its own greenlet, and maintains a list of servers."""
-
-        nodes = self.__node_collection.get_servers(self.__topic)
-        nodes_s = set(nodes)
-
-        if nodes_s != self.__nodes_s:
-            _logger.info("Servers have changed. NEW: %s REMOVED: %s", 
-                         nodes_s - self.__nodes_s, 
-                         self.__nodes_s - nodes_s)
-
-        # Since no servers means no connection greenlets, and the discover 
-        # greenlet is technically scheduled and not running between 
-        # invocations, this should successfully terminate the process.
-        if not nodes_s:
-            raise EnvironmentError("No servers available.")
-
-        self.__nodes_s = nodes_s
-
-        if schedule_again is True:
-            gevent.spawn_later(
-                nsq.config.client.LOOKUP_READ_INTERVAL_S,
-                self.__discover,
-                True)
+        self.__identify = nsq.identify.Identify().set_feature_negotiation()
 
     def run(self):
         """Establish and maintain connections."""
 
         _logger.info("Running client.")
 
-        using_lookup = issubclass(
-                        self.__node_collection.__class__, 
-                        nsq.node_collection.LookupNodes)
-
-        # Get a list of servers and schedule future checks (if we were given
-        # lookup servers).
-        self.__discover(using_lookup)
-
         connections = []
 
         def start_connection(node):
             _logger.info("Starting connection to node: [%s]", node)
 
-            c = nsq.connection.Connection(node, self.__topic, self.__channel)
+            c = nsq.connection.Connection(node, self.__identify)
+
             g = gevent.spawn(c.run)
             connections.append((node, g))
 
@@ -101,3 +64,23 @@ class Client(object):
                     raise EnvironmentError("All servers have gone away.")
 
             gevent.sleep(nsq.config.client.CONNECTION_AUDIT_WAIT_S)
+
+    def set_servers(self, nodes):
+        nodes_s = set(nodes)
+
+        if nodes_s != self.__nodes_s:
+            _logger.info("Servers have changed. NEW: %s REMOVED: %s", 
+                         nodes_s - self.__nodes_s, 
+                         self.__nodes_s - nodes_s)
+
+        # Since no servers means no connection greenlets, and the discover 
+        # greenlet is technically scheduled and not running between 
+        # invocations, this should successfully terminate the process.
+        if not nodes_s:
+            raise EnvironmentError("No servers available.")
+
+        self.__nodes_s = nodes_s
+
+    @property
+    def identify(self):
+        return self.__identify

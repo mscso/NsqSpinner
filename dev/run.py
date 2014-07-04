@@ -7,7 +7,7 @@ sys.path.insert(0, dev_path)
 
 import logging
 
-import nsq.client
+import nsq.consumer
 import nsq.node_collection
 
 def _configure_logging():
@@ -32,5 +32,9 @@ lookup_node_prefixes = [
 
 nc = nsq.node_collection.LookupNodes(lookup_node_prefixes)
 
-c = nsq.client.Client(_TOPIC, _CHANNEL, nc)
+c = nsq.consumer.Consumer(_TOPIC, _CHANNEL, nc)
+c.identify.\
+    client_id(11111).\
+    heartbeat_interval(10 * 1000)
+
 c.run()
