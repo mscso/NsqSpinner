@@ -1,4 +1,5 @@
 import logging
+
 import gevent
 import gevent.event
 
@@ -9,7 +10,6 @@ import nsq.identify
 import nsq.connection_election
 
 _logger = logging.getLogger(__name__)
-
 
 class Master(object):
     def __init__(self, message_handler_cls=None):
@@ -22,24 +22,25 @@ class Master(object):
         self.__terminate_ev = gevent.event.Event()
         self.__election = nsq.connection_election.ConnectionElection(self)
 
-    def __start_connection(self, node):
+    def __start_connection(self, node, ccallbacks=None):
         _logger.debug("Creating connection object: [%s]", node)
 
         c = nsq.connection.Connection(
                 node, 
                 self.__identify, 
-                self.__message_q)
+                self.__message_q,
+                ccallbacks)
 
         g = gevent.spawn(c.run)
         self.__connections.append((node, c, g))
 
-    def __manage_connections(self):
+    def __manage_connections(self, ccallbacks=None):
         _logger.info("Running client.")
 
         # Spawn connections to all of the servers.
 
         for node in self.__nodes_s:
-            self.__start_connection(node)
+            self.__start_connection(node, ccallbacks)
 
         # Wait until at least one server is connected.
 
@@ -100,7 +101,7 @@ class Master(object):
 
             for node in unused_nodes_s:
                 _logger.info("We've received a new server.")
-                self.__start_connection(node)
+                self.__start_connection(node, ccallbacks)
             else:
                 # Are there both no unused servers and no connected servers?
                 if not connected_nodes_s:
@@ -124,10 +125,10 @@ class Master(object):
 
         self.__nodes_s = nodes_s
 
-    def run(self):
+    def run(self, ccallbacks=None):
         """Establish and maintain connections."""
 
-        gevent.spawn(self.__manage_connections)
+        gevent.spawn(self.__manage_connections, ccallbacks)
         self.__ready_ev.wait()
 
     @property

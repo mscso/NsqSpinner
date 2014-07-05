@@ -26,11 +26,12 @@ _logger = logging.getLogger(__name__)
 
 
 class _ManagedConnection(object):
-    def __init__(self, node, connection, identify, message_q):
+    def __init__(self, node, connection, identify, message_q, ccallbacks=None):
         self.__node = node
         self.__c = connection
         self.__identify = identify
         self.__message_q = message_q
+        self.__ccallbacks = ccallbacks
 
         self.__command = nsq.command.Command(self)
         self.__last_command = None
@@ -94,7 +95,7 @@ class _ManagedConnection(object):
         _logger.debug("Received MESSAGE frame: [%s] (%d bytes)", 
                       message_id, len(body))
 
-        self.__message_q.put(m)
+        self.__message_q.put((self, m))
 
     def __send_command_primitive(
             self, 
@@ -186,6 +187,20 @@ class _ManagedConnection(object):
 
         self.__send_hello()
         self.__identify.enqueue(self)
+# TODO(dustin): Something isn't robust enough. If we restart the server a 
+#               couple of times, the client won't reconnect.
+        def terminate_cb(g):
+            # Technically, interact() will never return, so we'll never get here. 
+            # But, this is logical.
+            self.__is_connected = False
+
+            if self.__ccallbacks is not None:
+                gevent.spawn(self.__ccallbacks.broken, self)
+
+        gevent.getcurrent().link(terminate_cb)
+
+        if self.__ccallbacks is not None:
+            gevent.spawn(self.__ccallbacks.connect, self)
 
         while 1:
 # TODO(dustin): Consider breaking the loop if we haven't yet retried to 
@@ -224,15 +239,17 @@ class _ManagedConnection(object):
 
 
 class Connection(object):
-    def __init__(self, node, identify, message_q):
+    def __init__(self, node, identify, message_q, ccallbacks=None):
         self.__node = node
         self.__identify = identify
         self.__message_q = message_q
         self.__is_connected = False
         self.__mc = None
+        self.__ccallbacks = ccallbacks
 
     def __connect(self):
         _logger.debug("Connecting node: [%s]", self.__node)
+
         c = self.__node.connect()
 
         _logger.debug("Node connected and being handed-off to be managed: "
@@ -244,16 +261,13 @@ class Connection(object):
                         self.__node,
                         c, 
                         self.__identify,
-                        self.__message_q)
+                        self.__message_q,
+                        self.__ccallbacks)
 
         try:
             self.__mc.interact()
         except nsq.exceptions.NsqConnectGiveUpError:
             raise
-
-        # Technically, interact() will never return, so we'll never get here. 
-        # But, this is logical.
-        self.__is_connected = False
 
     def run(self):
         """Connect the server, and maintain the connection. This shall not 
