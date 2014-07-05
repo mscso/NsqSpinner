@@ -40,12 +40,6 @@ nc = nsq.node_collection.LookupNodes(lookup_node_prefixes)
 
 
 class _MessageHandler(nsq.message_handler.MessageHandler):
-    def message_received(self, connection, message):
-# TODO(dustin): We need to re-set our RDY when we decrement to zero... We'll 
-#               have to track our RDY's for every connection, and intelligently 
-#               choose values.
-        pass
-
     def classify_message(self, message):
         decoded = json.loads(message.body)
         return (decoded['type'], decoded)
@@ -53,10 +47,10 @@ class _MessageHandler(nsq.message_handler.MessageHandler):
     def handle_dummy(self, connection, message, context):
         print("Handling!")
 
-c = nsq.consumer.Consumer(_TOPIC, _CHANNEL, nc, _MessageHandler)
-c.identify.\
-    client_id(11111).\
-    heartbeat_interval(10 * 1000)
+    def default_message_handler(self, message_class, connection, message, 
+                                classify_context):
+        print("Squashing unhandled message: [%s] [%s]" % 
+              (message_class, message))
 
 
 class _ConnectionCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
@@ -66,4 +60,22 @@ class _ConnectionCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
     def broken(self, c):
         print("Broken!")
 
+    def message_received(self, connection, message):
+        print("Message received!")
+
+
+# TODO(dustin): We're currently passing the topic and channel twice. The first 
+#               is required to derive servers from NSQLOOKUPD hosts (if we're 
+#               using them), and the second is required to be able to subscribe 
+#               (where the topic/channel is potentially derived fro ma callback 
+#               that is given the connection).
+#
+#               The real question is whether we shouldn't allow our consumer to 
+#               represent more than one topic.
+c = nsq.consumer.Consumer(_TOPIC, _CHANNEL, nc, _MessageHandler)
+c.identify.\
+    client_id(11111).\
+    heartbeat_interval(10 * 1000)
+
 c.run((_TOPIC, _CHANNEL), 1, ccallbacks=_ConnectionCallbacks())
+    

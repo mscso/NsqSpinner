@@ -4,3 +4,6 @@ class ConnectionCallbacks(object):
 
     def broken(self, connection):
         pass
+
+    def message_received(self, connection, message):
+        pass

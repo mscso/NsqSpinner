@@ -12,6 +12,85 @@ import nsq.connection_callbacks
 _logger = logging.getLogger(__name__)
 
 
+class _ConnectionCallbacks(object):
+    def __init__(self, original_ccallbacks, duty, rdy, master, 
+                 connection_context):
+        self.__original_ccallbacks = original_ccallbacks
+        self.__duty = duty
+        self.__rdy = rdy
+        self.__master = master
+        self.__connection_context = connection_context
+
+    def __send_sub(self, connection, command):
+        """Duty can be a tuple of topic and channel. If it's a 
+        callback, call it to get the topic and channel for this 
+        connection. The callback can get the total number of 
+        connections via this object.
+        """
+
+        try:
+            duty_this = self.__duty(connection.node, self.__master)
+        except TypeError:
+            duty_this = self.__duty
+
+        command.sub(duty_this[0], duty_this[1])
+
+    def __send_rdy(self, connection, command):
+        """We determine the RDY count in the same fashion as the duty.
+        """
+
+        try:
+            rdy_this = self.__rdy(connection.node, self.__master)
+        except TypeError:
+            rdy_this = self.__rdy
+
+        command.rdy(rdy_this)
+
+        return rdy_this
+
+    def __initialize_connection(self, connection):
+        _logger.debug("Initializing connection: [%s]", connection.node)
+
+        command = nsq.command.Command(connection)
+
+        self.__send_sub(connection, command)
+        rdy = self.__send_rdy(connection, command)
+
+        self.__connection_context[connection] = { 'rdy_count': rdy }
+
+    def connect(self, connection):
+        self.__initialize_connection(connection)
+
+        self.__original_ccallbacks.connect(connection)
+
+    def broken(self, connection):
+        del self.__connection_context[connection]
+
+        self.__original_ccallbacks.broken(connection)
+
+    def message_received(self, connection, message):
+        self.__connection_context[connection]['rdy_count'] -= 1
+
+        if self.__connection_context[connection]['rdy_count'] <= 0:
+            _logger.info("RDY count has reached zero for [%s]. Re-"
+                         "setting.", connection)
+
+            command = nsq.command.Command(connection)
+            rdy = self.__send_rdy(connection, command)
+# TODO(dustin): This might need more smarts. This will probably have to be an 
+#               actively-adjusted value.
+            self.__connection_context[connection]['rdy_count'] = rdy
+
+        self.__original_ccallbacks.message_received(connection, message)
+
+    def __getattr__(self, name):
+        """Forward all other callbacks to the original. In order for 
+        this to work, we didn't inherit from anything.
+        """
+
+        return getattr(self.__original_ccallbacks, name)
+
+
 class Consumer(nsq.master.Master):
     def __init__(self, topic, channel, node_collection, 
                  *args, **kwargs):
@@ -27,6 +106,7 @@ class Consumer(nsq.master.Master):
         self.__node_collection = node_collection
         self.__topic = topic
         self.__channel = channel
+        self.__connection_context = {}
 
     def __discover(self, schedule_again):
         """This runs in its own greenlet, and maintains a list of servers."""
@@ -51,43 +131,20 @@ class Consumer(nsq.master.Master):
 
         # Get a list of servers and schedule future checks (if we were given
         # lookup servers).
+
         self.__discover(using_lookup)
 
-        def initialize_connection(duty, rdy, connection):
-            _logger.debug("Initializing connection: [%s]", connection.node)
+        # Preempt the callbacks that may have been given to us in order to 
+        # keep our consumer in order.
 
-            command = nsq.command.Command(connection)
+        cc = _ConnectionCallbacks(
+                ccallbacks, 
+                duty,
+                rdy,
+                self, 
+                self.__connection_context)
 
-            # Duty can be a tuple of topic and channel. If it's a callback,
-            # call it to get the topic and channel for this connection. The
-            # callback can get the total number of connections via this object.
-
-            try:
-                duty_this = duty(connection.node, self)
-            except TypeError:
-                duty_this = duty
-
-            command.sub(duty_this[0], duty_this[1])
-
-            # We determine the RDY count in the same fashion as the duty.
-
-            try:
-                rdy_this = rdy(connection.node, self)
-            except TypeError:
-                rdy_this = rdy
-
-            command.rdy(rdy_this)
-
-        connect_cb_original = ccallbacks.connect
-
-        def connect_cb(connection):
-            initialize_connection(duty, rdy, connection)
-
-            connect_cb_original(connection)
-
-        ccallbacks.connect = connect_cb
-
-        super(Consumer, self).run(ccallbacks=ccallbacks)
+        super(Consumer, self).run(ccallbacks=cc)
 
         # Block until we're told to terminate.
         self.terminate_ev.wait()

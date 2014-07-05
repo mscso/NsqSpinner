@@ -64,7 +64,7 @@ class Master(object):
 
         # Spawn the message handler.
 
-        message_handler = self.__message_handler_cls(self.__election)
+        message_handler = self.__message_handler_cls(self.__election, ccallbacks)
 
         gevent.spawn(
             message_handler.run, 

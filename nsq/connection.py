@@ -3,6 +3,7 @@ import struct
 import collections
 import json
 import pprint
+import datetime
 
 import gevent
 import gevent.select
@@ -17,7 +18,7 @@ import nsq.command
 
 _INCOMING_MESSAGE_CLS = collections.namedtuple(
                             'IncomingMessage',
-                            ['time_ns',
+                            ['timestamp_dt',
                              'attempts',
                              'message_id',
                              'body'])
@@ -85,9 +86,10 @@ class _ManagedConnection(object):
 # TODO(dustin): Filter for the couple of non-critical errors, and just display a warning.
         raise nsq.exceptions.NsqErrorResponseError(data)
 
-    def __process_frame_message(self, time_ns, attempts, message_id, body):
+    def __process_frame_message(self, timestamp_dt, attempts, message_id, 
+                                body):
         m = _INCOMING_MESSAGE_CLS(
-                time_ns=time_ns, 
+                timestamp_dt=timestamp_dt, 
                 attempts=attempts, 
                 message_id=message_id, 
                 body=body)
@@ -157,7 +159,12 @@ class _ManagedConnection(object):
             message_id = data[10:10 + 16]
             body = data[26:]
 
-            self.__process_frame_message(time_ns, attempts, message_id, body)
+            timestamp_dt = datetime.datetime.utcfromtimestamp(time_ns / 1e9)
+            self.__process_frame_message(
+                timestamp_dt, 
+                attempts, 
+                message_id, 
+                body)
         else:
             _logger.warning("Ignoring frame of invalid type (%d).", frame_type)
 

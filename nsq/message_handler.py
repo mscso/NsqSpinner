@@ -24,8 +24,9 @@ class MessageManuallyFinishedException(MessageHandleException):
 class MessageHandler(object):
     """The base-class of the handler for all incoming messages."""
 
-    def __init__(self, connection_election):
+    def __init__(self, connection_election, ccallbacks=None):
         self.__ce = connection_election
+        self.__ccallbacks = ccallbacks
 
     def run(self, message_q):
         _logger.debug("Message-handler waiting for messages.")
@@ -92,12 +93,12 @@ class MessageHandler(object):
 
         pass
 
-    def message_received(self, message):
+    def message_received(self, connection, message):
         """Just a tick function to allow the implementation to do things as any
         message is received.
         """
 
-        pass
+        self.__ccallbacks.message_received(connection, message)
 
     def classify_message(self, message):
         raise NotImplementedError()
