@@ -1,6 +1,8 @@
 import logging
 import struct
 import collections
+import json
+import pprint
 
 import gevent
 import gevent.select
@@ -24,7 +26,8 @@ _logger = logging.getLogger(__name__)
 
 
 class _ManagedConnection(object):
-    def __init__(self, connection, identify, message_q):
+    def __init__(self, node, connection, identify, message_q):
+        self.__node = node
         self.__c = connection
         self.__identify = identify
         self.__message_q = message_q
@@ -36,9 +39,6 @@ class _ManagedConnection(object):
         self.__response_success = None
         self.__response_error = None
         self.__response_event = gevent.event.Event()
-
-        # Receives incoming jobs.
-        self.__message_q = gevent.queue.Queue()
 
         # The queue for outgoing commands.
         self.__outgoing_q = gevent.queue.Queue()
@@ -62,10 +62,12 @@ class _ManagedConnection(object):
         # The very first command is an IDENTIFY, so this is the very first true
         # response.
         elif self.__last_command == nsq.identify.IDENTIFY_COMMAND:
-            _logger.debug("Received IDENTIFY response:\n%s", data)
+            identify_info = json.loads(data)
+            _logger.debug("Received IDENTIFY response:\n%s", 
+                          pprint.pformat(identify_info))
 
             self.__last_command = None
-            self.__identify.process_response(data)
+            self.__identify.process_response(identify_info)
 
         # Else, store the response. Whoever queued the last command can wait 
         # for the next response to be set. Each connection works in a serial
@@ -78,8 +80,9 @@ class _ManagedConnection(object):
 
     def __process_frame_error(self, data):
         _logger.error("Received ERROR frame: %s", data)
-        self.__response_error = data
-        self.__response_event.set()
+
+# TODO(dustin): Filter for the couple of non-critical errors, and just display a warning.
+        raise nsq.exceptions.NsqErrorResponseError(data)
 
     def __process_frame_message(self, time_ns, attempts, message_id, body):
         m = _INCOMING_MESSAGE_CLS(
@@ -91,16 +94,22 @@ class _ManagedConnection(object):
         _logger.debug("Received MESSAGE frame: [%s] (%d bytes)", 
                       message_id, len(body))
 
-        self.__message_q.add(m)
+        self.__message_q.put(m)
 
     def __send_command_primitive(
             self, 
             command, 
             parts):
-        _logger.debug("Sending command: [%s] (%d)", 
-                      command, len(parts))
 
-        self.__last_command = command
+        command_name = self.__distill_command_name(command)
+
+        _logger.debug("Sending command: [%s] (%d)", 
+                      command_name, len(parts))
+
+        self.__last_command = command_name
+
+        if issubclass(command.__class__, tuple) is True:
+            command = ' '.join([str(part) for part in command])
 
         self.__c.send(command + "\n")
         
@@ -109,9 +118,14 @@ class _ManagedConnection(object):
 
     def queue_message(self, command, parts):
         _logger.debug("Queueing command: [%s] (%d)", 
-                      command, len(parts))
+                      self.__distill_command_name(command), len(parts))
 
         self.__outgoing_q.put((command, parts))
+
+    def __distill_command_name(self, command):
+        """The command may have parameters. Extract the first part."""
+
+        return command[0] if issubclass(command.__class__, tuple) else command
 
     def send_command(self, command, parts=None, wait_for_response=True):
         if parts is None:
@@ -120,24 +134,17 @@ class _ManagedConnection(object):
         self.queue_message(command, parts)
 
         if wait_for_response is True:
-            _logger.debug("Waiting for response to [%s].", command)
+            _logger.debug("Waiting for response to [%s].", 
+                          self.__distill_command_name(command))
+
             self.__response_event.wait()
 
-            if self.__response_error is not None:
-                (response_error, self.__response_error) = (self.__response_error, None)
-                self.__response_event.clear()
-
-                raise nsq.exceptions.NsqErrorResponseError(response_error)
-
-            elif self.__response_success is not None:
-                (response, self.__response_success) = (self.__response_success, None)
-                self.__response_event.clear()
-
-            else:
-                raise ValueError("Could not determine the response for this "
-                                 "message.")
+            (response, self.__response_success) = (self.__response_success, None)
+            self.__response_event.clear()
 
             return response
+        else:
+            _logger.debug("There will be no response.")
 
     def __process_message(self, frame_type, data):
         if frame_type == nsq.constants.FT_RESPONSE:
@@ -199,12 +206,21 @@ class _ManagedConnection(object):
                 pass
             else:
                 _logger.debug("Dequeued outgoing command ((%d) remaining): "
-                              "[%s]", self.__outgoing_q.qsize(), command)
+                              "[%s]", self.__outgoing_q.qsize(), 
+                              self.__distill_command_name(command))
 
                 self.__send_command_primitive(command, parts)
 
 # TODO(dustin): Move this to config.
             gevent.sleep(.1)
+
+    @property
+    def command(self):
+        return self.__command
+
+    @property
+    def node(self):
+        return self.__node
 
 
 class Connection(object):
@@ -213,6 +229,7 @@ class Connection(object):
         self.__identify = identify
         self.__message_q = message_q
         self.__is_connected = False
+        self.__mc = None
 
     def __connect(self):
         _logger.debug("Connecting node: [%s]", self.__node)
@@ -223,13 +240,14 @@ class Connection(object):
 
         self.__is_connected = True
 
-        mc = _ManagedConnection(
-                c, 
-                self.__identify,
-                self.__message_q)
+        self.__mc = _ManagedConnection(
+                        self.__node,
+                        c, 
+                        self.__identify,
+                        self.__message_q)
 
         try:
-            mc.interact()
+            self.__mc.interact()
         except nsq.exceptions.NsqConnectGiveUpError:
             raise
 
@@ -249,3 +267,7 @@ class Connection(object):
     @property
     def is_connected(self):
         return self.__is_connected
+
+    @property
+    def managed_connection(self):
+        return self.__mc

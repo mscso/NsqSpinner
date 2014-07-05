@@ -6,6 +6,8 @@ dev_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, dev_path)
 
 import logging
+import json
+import gevent.queue
 
 import nsq.consumer
 import nsq.node_collection
@@ -37,17 +39,12 @@ nc = nsq.node_collection.LookupNodes(lookup_node_prefixes)
 
 
 class _MessageHandler(nsq.message_handler.MessageHandler):
-    def handle_incoming(self, message_q):
-        _logger.debug("Message-handler waiting for messages.")
-
-        while 1:
-            message = message_q.get()
-            
-            print("Received job:\n%s" % (message,))
+    def classify_message(self, message):
+        return json.loads(message.body)['type']
 
 c = nsq.consumer.Consumer(_TOPIC, _CHANNEL, nc, _MessageHandler)
 c.identify.\
     client_id(11111).\
     heartbeat_interval(10 * 1000)
 
-c.run()
+c.run((_TOPIC, _CHANNEL), 1)

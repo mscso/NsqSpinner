@@ -29,10 +29,10 @@ class Identify(object):
                     [struct.pack('!I', len_),
                      self.__cached])
 
-    def process_response(self, data):
-        response = json.loads(data)
-
+    def process_response(self, identify_info):
 # TODO(dustin): Finish.
+# TODO(dustin): Does a producer receive a job response, or do we have to push a 
+#               new job in order to deliver the result?
         pass
 
     def __push(self, k, v):

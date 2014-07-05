@@ -6,6 +6,7 @@ import nsq.config.client
 import nsq.node_collection
 import nsq.connection
 import nsq.identify
+import nsq.connection_election
 
 _logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class Master(object):
         self.__message_q = gevent.queue.Queue()
         self.__ready_ev = gevent.event.Event()
         self.__terminate_ev = gevent.event.Event()
+        self.__election = nsq.connection_election.ConnectionElection(self)
 
     def __start_connection(self, node):
         _logger.debug("Creating connection object: [%s]", node)
@@ -39,12 +41,6 @@ class Master(object):
         for node in self.__nodes_s:
             self.__start_connection(node)
 
-        # Spawn the message handler.
-
-        gevent.spawn(
-            self.__message_handler_cls().handle_incoming, 
-            self.__message_q)
-
         # Wait until at least one server is connected.
 
         _logger.info("Waiting for first connection.")
@@ -64,6 +60,14 @@ class Master(object):
             gevent.sleep(.1)
 
         self.__ready_ev.set()
+
+        # Spawn the message handler.
+
+        message_handler = self.__message_handler_cls(self.__election)
+
+        gevent.spawn(
+            message_handler.run, 
+            self.__message_q)
 
         # Loop, and maintain all connections.
 
@@ -132,7 +136,11 @@ class Master(object):
 
     @property
     def connections(self):
-        return self.__connections
+        return (c.managed_connection for (n, c, g) in self.__connections)
+
+    @property
+    def connection_count(self):
+        return len(self.__connections)
 
     @property
     def terminate_ev(self):
