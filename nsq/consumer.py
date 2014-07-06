@@ -8,6 +8,7 @@ import nsq.master
 import nsq.node_collection
 import nsq.command
 import nsq.connection_callbacks
+import nsq.connection
 
 _logger = logging.getLogger(__name__)
 
@@ -92,7 +93,8 @@ class _ConnectionCallbacks(object):
 
 
 class Consumer(nsq.master.Master):
-    def __init__(self, topic, channel, node_collection, 
+    def __init__(self, topic, channel, node_collection,
+                 tls_ca_bundle_filepath=None, tls_auth_pair=None,
                  *args, **kwargs):
         # The consumer can interact either with producers or lookup servers 
         # (which render producers).
@@ -107,6 +109,9 @@ class Consumer(nsq.master.Master):
         self.__topic = topic
         self.__channel = channel
         self.__connection_context = {}
+        self.__is_tls = bool(tls_ca_bundle_filepath or tls_auth_pair)
+        self.__tls_ca_bundle_filepath = tls_ca_bundle_filepath
+        self.__tls_auth_pair = tls_auth_pair
 
     def __discover(self, schedule_again):
         """This runs in its own greenlet, and maintains a list of servers."""
@@ -124,6 +129,14 @@ class Consumer(nsq.master.Master):
     def run(self, duty, rdy, ccallbacks=None):
         if ccallbacks is None:
             ccallbacks = nsq.connection_callbacks.ConnectionCallbacks()
+
+        if self.__is_tls:
+            if self.__tls_ca_bundle_filepath is None:
+                raise ValueError("Please provide a CA bundle.")
+
+            nsq.connection.TLS_CA_BUNDLE_FILEPATH = self.__tls_ca_bundle_filepath
+            nsq.connection.TLS_AUTH_PAIR = self.__tls_auth_pair
+            self.identify.set_tls_v1()
 
         using_lookup = issubclass(
                         self.__node_collection.__class__, 

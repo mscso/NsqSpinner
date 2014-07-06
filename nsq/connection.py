@@ -4,17 +4,23 @@ import collections
 import json
 import pprint
 import datetime
+import io
 
 import gevent
 import gevent.select
 import gevent.queue
 import gevent.event
+import gevent.ssl
 
+import nsq.config
+import nsq.config.protocol
 import nsq.constants
 import nsq.exceptions
-import nsq.config.protocol
 import nsq.node
 import nsq.command
+
+TLS_CA_BUNDLE_FILEPATH = None
+TLS_AUTH_PAIR = None
 
 _INCOMING_MESSAGE_CLS = collections.namedtuple(
                             'IncomingMessage',
@@ -24,6 +30,69 @@ _INCOMING_MESSAGE_CLS = collections.namedtuple(
                              'body'])
 
 _logger = logging.getLogger(__name__)
+
+
+class _Buffer(object):
+    """A buffer object that retains a stack of whole blocks, and allows us to 
+    pop lengths off the head.
+    """
+
+    def __init__(self):
+        self.__size = 0
+        self.__buffers = []
+        self.__logger = _logger.getChild('Buffer')
+
+        if nsq.config.IS_DEBUG is True:
+            self.__logger.setLevel(logging.DEBUG)
+        else:
+            self.__logger.setLevel(logging.INFO)
+
+    def push(self, bytes):
+        self.__logger.debug("Pushing chunk of (%d) bytes into the buffer. "
+                            "TOTAL_BYTES=(%d) TOTAL_CHUNKS=(%d)", 
+                            len(bytes), self.__size, len(self.__buffers))
+
+        self.__buffers.append(bytes)
+        self.__size += len(bytes)
+
+    def read(self, count):
+        self.__logger.debug("Read head-length (%d).", count)
+
+        if count > self.__size:
+           raise IOError("Buffers are short: (%d) < (%d)", self.__size, count)
+
+        still_needed_b = count
+        clips = []
+
+        while still_needed_b > 0:
+            first_buffer_len = len(self.__buffers[0])
+            if first_buffer_len < still_needed_b:
+                self.__logger.debug("Popping chunk of (%d) bytes off the "
+                                    "front of the buffers.", first_buffer_len)
+
+                clips.append(self.__buffers[0])
+                del self.__buffers[0]
+                still_needed_b -= first_buffer_len
+                self.__size -= first_buffer_len
+
+                self.__logger.debug("(%d) chunks remain, of (%d) total bytes.",
+                                    len(self.__buffers), self.__size)
+            else:
+                self.__logger.debug("Splitting (%d) bytes off the front of "
+                                    "first buffer of (%d) bytes.", 
+                                    still_needed_b, first_buffer_len)
+
+                clips.append(self.__buffers[0][:still_needed_b])
+                self.__buffers[0] = self.__buffers[0][still_needed_b:]
+                self.__size -= still_needed_b
+                still_needed_b = 0
+
+        self.__logger.debug("Joining (%d) segments.", len(clips))
+        return ''.join(clips)
+
+    @property
+    def size(self):
+        return self.__size
 
 
 class _ManagedConnection(object):
@@ -45,12 +114,39 @@ class _ManagedConnection(object):
         # The queue for outgoing commands.
         self.__outgoing_q = gevent.queue.Queue()
 
+        self.__buffer = _Buffer()
+
+    def __str__(self):
+        return ('<CONNECTION %s>' % (self.__c.getpeername(),))
+
     def __send_hello(self):
         """Initiate the handshake."""
 
-        _logger.debug("Saying hello: [%s]", self.__c)
+        _logger.debug("Saying hello: [%s]", self)
 
         self.__c.send(nsq.config.protocol.MAGIC_IDENTIFIER)
+
+    def activate_tlsv1(self):
+        if TLS_CA_BUNDLE_FILEPATH is None:
+            raise EnvironmentError("We were told to activate TLS, but no CA "
+                                   "bundle was set.")
+
+        _logger.info("Activating TLSv1 with [%s]: %s", 
+                     TLS_CA_BUNDLE_FILEPATH, self)
+
+        options = {
+            'cert_reqs': gevent.ssl.CERT_REQUIRED,
+            'ca_certs': TLS_CA_BUNDLE_FILEPATH,
+        }
+
+        if TLS_AUTH_PAIR is not None:
+            _logger.info("Using TLS authentication: %s", TLS_AUTH_PAIR)
+            (options['keyfile'], options['certfile']) = TLS_AUTH_PAIR
+
+        self.__c = gevent.ssl.wrap_socket(
+                    self.__c, 
+                    ssl_version=gevent.ssl.PROTOCOL_TLSv1, 
+                    **options)
 
     def __process_frame_response(self, data):
         # Heartbeats, which arrive as responses, won't interfere with the
@@ -69,7 +165,7 @@ class _ManagedConnection(object):
                           pprint.pformat(identify_info))
 
             self.__last_command = None
-            self.__identify.process_response(identify_info)
+            self.__identify.process_response(self, identify_info)
 
         # Else, store the response. Whoever queued the last command can wait 
         # for the next response to be set. Each connection works in a serial
@@ -169,14 +265,12 @@ class _ManagedConnection(object):
             _logger.warning("Ignoring frame of invalid type (%d).", frame_type)
 
     def __read_or_die(self, length):
-        data = self.__c.recv(length)
-        len_ = len(data)
-        if len_ != length:
-            print(data)
-            raise IOError("Could not read (%d) bytes from socket: (%d) != "
-                          "(%d)" % (length, len_, length))
+        while self.__buffer.size < length:
+# TODO(dustin): Put the receive block-size into the config.
+            data = self.__c.recv(8192)
+            self.__buffer.push(data)
 
-        return data
+        return self.__buffer.read(length)
 
     def __read_frame(self):
         _logger.debug("Reading frame header.")

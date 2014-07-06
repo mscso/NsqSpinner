@@ -1,3 +1,5 @@
+import os
+
 MAGIC_IDENTIFIER = '  V2'
 READ_SELECT_TIMEOUT_S = .1
 HEARTBEAT_RESPONSE = '_heartbeat_'

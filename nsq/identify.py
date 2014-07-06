@@ -2,6 +2,8 @@ import logging
 import json
 import struct
 
+import nsq.compat
+
 _logger = logging.getLogger(__name__)
 
 IDENTIFY_COMMAND = 'IDENTIFY'
@@ -19,6 +21,7 @@ class Identify(object):
 
         if self.__cached is None:
             self.__cached = json.dumps(self.__parameters)
+            _logger.debug("Using IDENTIFY body:\n%s", self.__cached)
 
         len_ = len(self.__cached)
 
@@ -29,7 +32,14 @@ class Identify(object):
                     [struct.pack('!I', len_),
                      self.__cached])
 
-    def process_response(self, identify_info):
+    def process_response(self, connection, identify_info):
+
+        try:
+            if identify_info['tls_v1'] is True:
+                connection.activate_tlsv1()
+        except KeyError:
+            pass
+
 # TODO(dustin): Finish.
 # TODO(dustin): Does a producer receive a job response, or do we have to push a 
 #               new job in order to deliver the result?
@@ -62,7 +72,7 @@ class Identify(object):
         something specific to the consumer)
         """
 
-        assert issubclass(client_id.__class__, int)
+        assert issubclass(client_id.__class__, nsq.compat.str_type)
 
         return self.__push('client_id', client_id)
 

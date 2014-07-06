@@ -72,10 +72,17 @@ class _ConnectionCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
 #
 #               The real question is whether we shouldn't allow our consumer to 
 #               represent more than one topic.
-c = nsq.consumer.Consumer(_TOPIC, _CHANNEL, nc, _MessageHandler)
+c = nsq.consumer.Consumer(
+        _TOPIC, 
+        _CHANNEL, 
+        nc, 
+        message_handler_cls=_MessageHandler, 
+        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
+        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
+                       '/Users/dustin/ssl/ca_test/client.crt.pem'))
+
 c.identify.\
-    client_id(11111).\
+    client_id('11111').\
     heartbeat_interval(10 * 1000)
 
 c.run((_TOPIC, _CHANNEL), 1, ccallbacks=_ConnectionCallbacks())
-    
