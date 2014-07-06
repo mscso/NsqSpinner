@@ -1,4 +1,6 @@
 import logging
+import struct
+import io
 
 _logger = logging.getLogger(__name__)
 
@@ -21,3 +23,54 @@ class Command(object):
 
     def fin(self, message_id):
         self.__c.send_command(('FIN', message_id), wait_for_response=False)
+
+    def __get_packed_length(self, data):
+        return struct.pack('!I', len(data))
+
+    def __pack(self, data):
+        return self.__get_packed_length(data) + data
+
+    def pub(self, topic, data):
+# TODO(dustin): Test this.
+        self.__c.send_command(
+            ('PUB', topic), 
+            [self.__pack(data)])
+
+    def mpub(self, topic, messages):
+# TODO(dustin): Test this.
+        s = io.BytesIO()
+
+        count = 0
+        for message in messages:
+            s.write(self.__pack(message))
+            count += 1
+
+        multiple_message_data = s.getvalue()
+
+        packed_message_count = self.__get_packed_length(count)
+        packed_length = len(packed_message_count) + \
+                        self.__get_packed_length(multiple_message_data)
+
+        self.__c.send_command(
+            ('MPUB', topic), 
+            [packed_length,
+             packed_message_count,
+             multiple_message_data])
+
+    def req(self, message_id, timeout_s):
+# TODO(dustin): Test this.
+# TODO(dustin): Verify that this is actually in seconds.
+
+        self.__c.send_command(
+            ('REQ', message_id, timeout_s), 
+            wait_for_response=False)
+
+    def touch(self, message_id):
+# TODO(dustin): Test this.
+        self.__c.send_command(
+            ('TOUCH', message_id), 
+            wait_for_response=False)
+
+    def cls(self):
+# TODO(dustin): Test this.
+        self.__c.send_command('CLS')
