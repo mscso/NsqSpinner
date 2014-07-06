@@ -90,6 +90,15 @@ class _Buffer(object):
         self.__logger.debug("Joining (%d) segments.", len(clips))
         return ''.join(clips)
 
+    def flush(self):
+        """Return all buffered data, and clear the stack."""
+
+        collected = ''.join(self.__buffers)
+        self.__buffers = []
+        self.__size = 0
+
+        return collected
+
     @property
     def size(self):
         return self.__size
@@ -115,6 +124,8 @@ class _ManagedConnection(object):
         self.__outgoing_q = gevent.queue.Queue()
 
         self.__buffer = _Buffer()
+        self.__read_filters = []
+        self.__write_filters = []
 
     def __str__(self):
         return ('<CONNECTION %s>' % (self.__c.getpeername(),))
@@ -125,6 +136,23 @@ class _ManagedConnection(object):
         _logger.debug("Saying hello: [%s]", self)
 
         self.__c.send(nsq.config.protocol.MAGIC_IDENTIFIER)
+
+    def activate_snappy(self):
+        _logger.info("Activating Snappy compression.")
+
+        import snappy
+
+        c = snappy.StreamCompressor()
+        self.__write_filters.append(c.add_chunk)
+
+        d = snappy.StreamDecompressor()
+        self.__read_filters.append(d.decompress)
+
+        existing = self.__buffer.flush()
+        decompressed = d.decompress(existing)
+
+        if decompressed:
+            self.__buffer.push(decompressed)
 
     def activate_tlsv1(self):
         if TLS_CA_BUNDLE_FILEPATH is None:
@@ -195,6 +223,15 @@ class _ManagedConnection(object):
 
         self.__message_q.put((self, m))
 
+    def __primitive_send(self, data):
+        for f in self.__write_filters:
+            data = f(data)
+            if not data:
+                break
+        
+        if data:
+            self.__c.send(data)
+
     def __send_command_primitive(
             self, 
             command, 
@@ -210,10 +247,10 @@ class _ManagedConnection(object):
         if issubclass(command.__class__, tuple) is True:
             command = ' '.join([str(part) for part in command])
 
-        self.__c.send(command + "\n")
+        self.__primitive_send(command + "\n")
         
         for part in parts:
-            self.__c.send(part)
+            self.__primitive_send(part)
 
     def queue_message(self, command, parts):
         _logger.debug("Queueing command: [%s] (%d)", 
@@ -268,7 +305,17 @@ class _ManagedConnection(object):
         while self.__buffer.size < length:
 # TODO(dustin): Put the receive block-size into the config.
             data = self.__c.recv(8192)
-            self.__buffer.push(data)
+            
+            # We reverse this because the read and write filters, though added 
+            # to their respective lists at the same time, will have to be 
+            # processed in the reverse order.
+            for f in reversed(self.__read_filters):
+                data = f(data)
+                if not data:
+                    break
+            
+            if data:
+                self.__buffer.push(data)
 
         return self.__buffer.read(length)
 

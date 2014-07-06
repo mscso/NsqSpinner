@@ -34,16 +34,19 @@ class Identify(object):
 
     def process_response(self, connection, identify_info):
 
+# TODO(dustin): Does a producer receive a job response, or do we have to push a 
+#               new job in order to deliver the result?
         try:
             if identify_info['tls_v1'] is True:
                 connection.activate_tlsv1()
         except KeyError:
             pass
 
-# TODO(dustin): Finish.
-# TODO(dustin): Does a producer receive a job response, or do we have to push a 
-#               new job in order to deliver the result?
-        pass
+        try:
+            if identify_info['snappy'] is True:
+                connection.activate_snappy()
+        except KeyError:
+            pass
 
     def __push(self, k, v):
         self.__parameters[k] = v
