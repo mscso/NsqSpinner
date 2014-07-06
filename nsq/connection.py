@@ -208,10 +208,11 @@ class _ManagedConnection(object):
             self.__response_event.set()
 
     def __process_frame_error(self, data):
-        _logger.error("Received ERROR frame: %s", data)
-
-# TODO(dustin): Filter for the couple of non-critical errors, and just display a warning.
-        raise nsq.exceptions.NsqErrorResponseError(data)
+        if data in nsq.config.protocol.PASSIVE_ERROR_LIST:
+            _logger.warning("Passive error received and ignored: [%s]", data)
+        else:
+            _logger.error("Received ERROR frame: [%s]", data)
+            raise nsq.exceptions.NsqErrorResponseError(data)
 
     def __process_frame_message(self, timestamp_dt, attempts, message_id, 
                                 body):
