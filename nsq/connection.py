@@ -127,6 +127,8 @@ class _ManagedConnection(object):
         self.__read_filters = []
         self.__write_filters = []
 
+        self.__do_buffered_reads = False
+
     def __str__(self):
         return ('<CONNECTION %s>' % (self.__c.getpeername(),))
 
@@ -148,12 +150,6 @@ class _ManagedConnection(object):
         d = snappy.StreamDecompressor()
         self.__read_filters.append(d.decompress)
 
-        existing = self.__buffer.flush()
-        decompressed = d.decompress(existing)
-
-        if decompressed:
-            self.__buffer.push(decompressed)
-
     def activate_tlsv1(self):
         if TLS_CA_BUNDLE_FILEPATH is None:
             raise EnvironmentError("We were told to activate TLS, but no CA "
@@ -172,8 +168,10 @@ class _ManagedConnection(object):
             (options['keyfile'], options['certfile']) = TLS_AUTH_PAIR
 
         self.__c = gevent.ssl.wrap_socket(
-                    self.__c, 
-                    ssl_version=gevent.ssl.PROTOCOL_TLSv1, 
+                    self.__c,
+                    ssl_version=gevent.ssl.PROTOCOL_TLSv1,
+# TODO(dustin): This is in the original client, but I doubt we need it.
+#                    do_handshake_on_connect=False,
                     **options)
 
     def __process_frame_response(self, data):
@@ -194,6 +192,11 @@ class _ManagedConnection(object):
 
             self.__last_command = None
             self.__identify.process_response(self, identify_info)
+
+            # We don't want to deal with the complexities of have existing data 
+            # in the buffers when we enable SSL or compression.
+            self.__do_buffered_reads = True
+
 
         # Else, store the response. Whoever queued the last command can wait 
         # for the next response to be set. Each connection works in a serial
@@ -301,7 +304,7 @@ class _ManagedConnection(object):
         else:
             _logger.warning("Ignoring frame of invalid type (%d).", frame_type)
 
-    def __read_or_die(self, length):
+    def __read_buffered(self, length):
         while self.__buffer.size < length:
 # TODO(dustin): Put the receive block-size into the config.
             data = self.__c.recv(8192)
@@ -319,14 +322,31 @@ class _ManagedConnection(object):
 
         return self.__buffer.read(length)
 
+    def __read_exact(self, length):
+        parts = []
+        remaining_b = length
+
+        while remaining_b > 0:
+            data = self.__c.recv(remaining_b)
+            parts.append(data)
+            remaining_b -= len(data)
+
+        return ''.join(parts)
+
+    def __read(self, length):
+        if self.__do_buffered_reads is True:
+            return self.__read_buffered(length)
+        else:
+            return self.__read_exact(length)
+
     def __read_frame(self):
         _logger.debug("Reading frame header.")
-        (length,) = struct.unpack('!I', self.__read_or_die(4))
+        (length,) = struct.unpack('!I', self.__read(4))
 
         _logger.debug("Reading (%d) more bytes", length)
 
-        (frame_type,) = struct.unpack('!I', self.__read_or_die(4))
-        data = self.__read_or_die(length - 4)
+        (frame_type,) = struct.unpack('!I', self.__read(4))
+        data = self.__read(length - 4)
 
         self.__process_message(frame_type, data)
 

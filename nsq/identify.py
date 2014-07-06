@@ -36,6 +36,7 @@ class Identify(object):
 
 # TODO(dustin): Does a producer receive a job response, or do we have to push a 
 #               new job in order to deliver the result?
+
         try:
             if identify_info['tls_v1'] is True:
                 connection.activate_tlsv1()
