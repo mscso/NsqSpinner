@@ -14,34 +14,24 @@ _logger = logging.getLogger(__name__)
 
 
 class _ConnectionCallbacks(object):
-    def __init__(self, original_ccallbacks, duty, rdy, master, 
+    def __init__(self, original_ccallbacks, topic, channel, rdy, master, 
                  connection_context):
         self.__original_ccallbacks = original_ccallbacks
-        self.__duty = duty
+        self.__topic = topic
+        self.__channel = channel
         self.__rdy = rdy
         self.__master = master
         self.__connection_context = connection_context
 
     def __send_sub(self, connection, command):
-        """Duty can be a tuple of topic and channel. If it's a 
-        callback, call it to get the topic and channel for this 
-        connection. The callback can get the total number of 
-        connections via this object.
-        """
-
-        try:
-            duty_this = self.__duty(connection.node, self.__master)
-        except TypeError:
-            duty_this = self.__duty
-
-        command.sub(duty_this[0], duty_this[1])
+        command.sub(self.__topic, self.__channel)
 
     def __send_rdy(self, connection, command):
-        """We determine the RDY count in the same fashion as the duty.
-        """
-
         try:
-            rdy_this = self.__rdy(connection.node, self.__master)
+            rdy_this = self.__rdy(
+                        connection.node, 
+                        self.__master.connection_count, 
+                        self.__master)
         except TypeError:
             rdy_this = self.__rdy
 
@@ -127,7 +117,7 @@ class Consumer(nsq.master.Master):
                 self.__discover,
                 True)
 
-    def run(self, duty, rdy, ccallbacks=None):
+    def run(self, rdy, ccallbacks=None):
         if ccallbacks is None:
             ccallbacks = nsq.connection_callbacks.ConnectionCallbacks()
 
@@ -156,7 +146,8 @@ class Consumer(nsq.master.Master):
 
         cc = _ConnectionCallbacks(
                 ccallbacks, 
-                duty,
+                self.__topic,
+                self.__channel,
                 rdy,
                 self, 
                 self.__connection_context)

@@ -11,6 +11,7 @@ import nsq.connection_election
 
 _logger = logging.getLogger(__name__)
 
+
 class Master(object):
     def __init__(self, message_handler_cls=None):
         self.__nodes_s = set()
