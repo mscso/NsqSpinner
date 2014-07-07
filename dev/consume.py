@@ -77,9 +77,9 @@ nsq.consumer.consume(
     _ConnectionCallbacks(),
     500, 
     message_handler_cls=_MessageHandler, 
-#        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
-#        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
-#                       '/Users/dustin/ssl/ca_test/client.crt.pem'),
+    tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
+#    tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
+#                   '/Users/dustin/ssl/ca_test/client.crt.pem'),
     compression=True,
     identify=i)
 

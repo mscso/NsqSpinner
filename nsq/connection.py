@@ -150,6 +150,19 @@ class _ManagedConnection(object):
         d = snappy.StreamDecompressor()
         self.__read_filters.append(d.decompress)
 
+        # Normally, this doesn't get set until -after- the IDENTIFY response is 
+        # processed so that filters/etc can be added/removed before we have 
+        # data being buffered. However, since compression requires that data of 
+        # one length is received and data of another length is returned, it 
+        # makes things a little nicer to just enable it here (a little early), 
+        # so that we can grab the Snappy response without difficulty.
+        _logger.debug("Enabling buffering a little early.")
+        self.__do_buffered_reads = True
+
+        # There should be an OK waiting in the pipeline.
+        _logger.debug("Waiting for Snappy success response.")
+        self.__read_frame()
+
     def activate_tlsv1(self):
         if TLS_CA_BUNDLE_FILEPATH is None:
             raise EnvironmentError("We were told to activate TLS, but no CA "
@@ -170,10 +183,9 @@ class _ManagedConnection(object):
         self.__c = gevent.ssl.wrap_socket(
                     self.__c,
                     ssl_version=gevent.ssl.PROTOCOL_TLSv1,
-# TODO(dustin): This is in the original client, but I doubt we need it.
-#                    do_handshake_on_connect=False,
                     **options)
 
+        # There should be an OK waiting in the pipeline.
         _logger.debug("Waiting for SSL success response.")
         self.__read_frame()
 
@@ -193,6 +205,9 @@ class _ManagedConnection(object):
             _logger.debug("Received IDENTIFY response:\n%s", 
                           pprint.pformat(identify_info))
 
+            # We have to clear this beforehand because we might expect a 
+            # couple of signally responses, and they would get routed here if 
+            # this is still set.
             self.__last_command = None
             self.__identify.process_response(self, identify_info)
 
@@ -200,12 +215,12 @@ class _ManagedConnection(object):
             # in the buffers when we enable SSL or compression.
             self.__do_buffered_reads = True
 
-
         # Else, store the response. Whoever queued the last command can wait 
         # for the next response to be set. Each connection works in a serial
         # fashion.
         else:
-            _logger.debug("Received response (%d bytes).", len(data))
+            _logger.debug("Received response (%d bytes) (LAST_COMMAND=[%s]).", 
+                          len(data), self.__last_command)
 
             self.__response_success = data
             self.__response_event.set()
@@ -249,6 +264,7 @@ class _ManagedConnection(object):
         _logger.debug("Sending command: [%s] (%d)", 
                       command_name, len(parts))
 
+        # Indicate that this was the last command physically transmitted.
         self.__last_command = command_name
 
         if issubclass(command.__class__, tuple) is True:
@@ -308,18 +324,22 @@ class _ManagedConnection(object):
         else:
             _logger.warning("Ignoring frame of invalid type (%d).", frame_type)
 
+    def __filter_incoming_data(self, data):
+        # We reverse this because the read and write filters, though added 
+        # to their respective lists at the same time, will have to be 
+        # processed in the reverse order.
+        for f in reversed(self.__read_filters):
+            data = f(data)
+            if not data:
+                break
+
+        return data
+
     def __read_buffered(self, length):
         while self.__buffer.size < length:
 # TODO(dustin): Put the receive block-size into the config.
             data = self.__c.recv(8192)
-            
-            # We reverse this because the read and write filters, though added 
-            # to their respective lists at the same time, will have to be 
-            # processed in the reverse order.
-            for f in reversed(self.__read_filters):
-                data = f(data)
-                if not data:
-                    break
+            data = self.__filter_incoming_data(data)
             
             if data:
                 self.__buffer.push(data)
@@ -332,8 +352,20 @@ class _ManagedConnection(object):
 
         while remaining_b > 0:
             data = self.__c.recv(remaining_b)
-            parts.append(data)
-            remaining_b -= len(data)
+            if not data:
+                continue
+
+            data_filtered = self.__filter_incoming_data(data)
+            filtered_bytes = len(data_filtered)
+            data_bytes = len(data)
+
+            if filtered_bytes != data_bytes:
+                raise IOError("The amount of bytes returned from filtering "
+                              "(%d) -does not- equal the number that went in "
+                              "(%d)!" % (filtered_bytes, data_bytes))
+
+            parts.append(data_filtered)
+            remaining_b -= filtered_bytes
 
         return ''.join(parts)
 
