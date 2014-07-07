@@ -10,6 +10,8 @@ class ConnectionElection(object):
 #               should implement semantics to ensure fairness. Return a command
 #               object.
 #
+#               Should we just do RR?
+#
 #               This is a shunt, for now.
         for connection in self.__master.connections:
             return connection.command

@@ -142,7 +142,10 @@ class _ConnectionCallbacks(object):
         self.__send_sub(connection, command)
         rdy = self.__send_rdy(connection, command)
 
-        self.__connection_context[connection] = { 'rdy_count': rdy }
+        self.__connection_context[connection] = { 
+            'rdy_count': rdy,
+            'rdy_original': rdy,
+        }
 
     def connect(self, connection):
         self.__initialize_connection(connection)
@@ -157,14 +160,16 @@ class _ConnectionCallbacks(object):
     def message_received(self, connection, message):
         self.__connection_context[connection]['rdy_count'] -= 1
 
-        if self.__connection_context[connection]['rdy_count'] <= 0:
+        repost_threshold = \
+            self.__connection_context[connection]['rdy_original'] // 4
+        if self.__connection_context[connection]['rdy_count'] <= \
+                repost_threshold:
             _logger.info("RDY count has reached zero for [%s]. Re-"
                          "setting.", connection)
 
             command = nsq.command.Command(connection)
             rdy = self.__send_rdy(connection, command)
-# TODO(dustin): This might need more smarts. This will probably have to be an 
-#               actively-adjusted value.
+
             self.__connection_context[connection]['rdy_count'] = rdy
 
         self.__original_ccallbacks.message_received(connection, message)
