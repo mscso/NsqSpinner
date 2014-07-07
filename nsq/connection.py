@@ -174,6 +174,9 @@ class _ManagedConnection(object):
 #                    do_handshake_on_connect=False,
                     **options)
 
+        _logger.debug("Waiting for SSL success response.")
+        self.__read_frame()
+
     def __process_frame_response(self, data):
         # Heartbeats, which arrive as responses, won't interfere with the
         # responses to commands since we'll handle it right here.

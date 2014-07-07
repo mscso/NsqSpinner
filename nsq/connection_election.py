@@ -6,6 +6,10 @@ _logger = logging.getLogger(__name__)
 
 
 class ConnectionElection(object):
+    """This class manages the origination of commands, so that we can 
+    centralize routing decisions.
+    """
+
     def __init__(self, master):
         self.__master = master
         self.__last_connection_name = None
