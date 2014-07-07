@@ -14,6 +14,9 @@ import nsq.connection
 
 _logger = logging.getLogger(__name__)
 
+# TODO(dustin): We still need to consider "backoff" from the perspective of
+#               message processing (the "Backoff" section).
+
 
 class _ConnectionCallbacks(object):
     def __init__(self, original_ccallbacks, topic, channel, master, 
@@ -113,10 +116,14 @@ class _ConnectionCallbacks(object):
                         self.__get_total_rdy_count(), 
                        self.__max_in_flight)
 
-        # Make sure we don't exceed the maximum specified by the server.
+        # Make sure we don't exceed the maximum specified by the server. This 
+        # only works because we're running greenlets, not threads. At any given 
+        # time, only one greenlet is running, and we can make sure to 
+        # distribute the remainder of (max_in_flight / nodes) across a subset 
+        # of the nodes (they don't all have to have an even slice of 
+        # max_in_flight).
 
         max_rdy_count = self.__master.identify.server_features['max_rdy_count']
-
         rdy_this = min(max_rdy_count, rdy_this)
 
         _logger.info("Final RDY (max_in_flight=(%d) max_rdy_count=(%d)): (%d)",

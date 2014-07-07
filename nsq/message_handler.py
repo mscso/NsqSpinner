@@ -20,6 +20,15 @@ class MessageUnhandledError(Exception):
 class MessageManuallyFinishedException(MessageHandleException):
     pass
 
+# TODO(dustin): The starvation provisions spelled-out under "Message Flow 
+#               Starvation" at:
+#
+#                   http://nsq.io/clients/building_client_libraries.html#rdy_state 
+#
+#               isn't relevant, if we read it right. Our aggregate RDY count 
+#               always equals max_in_flight (which won't have the problems 
+#               associated with an "even distribution of RDY count")
+
 
 class MessageHandler(object):
     """The base-class of the handler for all incoming messages."""
@@ -32,7 +41,6 @@ class MessageHandler(object):
         _logger.debug("Message-handler waiting for messages.")
 
         def finish(message):
-# TODO(dustin): Verify that we can send FIN on any connection.
             self.__ce.elect_connection().fin(message.message_id)
 
         while 1:

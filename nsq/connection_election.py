@@ -10,9 +10,9 @@ class ConnectionElection(object):
 #               should implement semantics to ensure fairness. Return a command
 #               object.
 #
-#               Should we just do RR?
-#
-#               This is a shunt, for now.
+#               We think RR over the existing non-sleeping connections should 
+#               be fine. All connections that have an RDY > 0 are considered 
+#               equal.
         for connection in self.__master.connections:
             return connection.command
 
