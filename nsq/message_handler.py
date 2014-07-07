@@ -41,6 +41,8 @@ class MessageHandler(object):
         _logger.debug("Message-handler waiting for messages.")
 
         def finish(message):
+# TODO(dustin): We'll use election whenever we need to initiate a connection-
+#               agnostic command.
             self.__ce.elect_connection().fin(message.message_id)
 
         while 1:
