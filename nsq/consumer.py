@@ -1,6 +1,8 @@
 import logging
 import types
 import functools
+import math
+import random
 
 import gevent
 
@@ -14,30 +16,123 @@ _logger = logging.getLogger(__name__)
 
 
 class _ConnectionCallbacks(object):
-    def __init__(self, original_ccallbacks, topic, channel, rdy, master, 
-                 connection_context):
+    def __init__(self, original_ccallbacks, topic, channel, master, 
+                 connection_context, max_in_flight, rdy=None):
         self.__original_ccallbacks = original_ccallbacks
         self.__topic = topic
         self.__channel = channel
-        self.__rdy = rdy
         self.__master = master
         self.__connection_context = connection_context
+        self.__max_in_flight = max_in_flight
+        self.__rdy = rdy
 
     def __send_sub(self, connection, command):
         command.sub(self.__topic, self.__channel)
 
     def __send_rdy(self, connection, command):
-        try:
-            rdy_this = self.__rdy(
-                        connection.node, 
-                        self.__master.connection_count, 
-                        self.__master)
-        except TypeError:
-            rdy_this = self.__rdy
+        """Determine the RDY value, and set it. It can either be a static value
+        a callback, or None. If it's None, we'll calculate the value based on
+        our limits and connection counts.
 
-        command.rdy(rdy_this)
+        The documentation recommends starting with (1), but since we are always
+        dealing directly with *nsqd* servers by now, we'll always have a valid
+        count to work with. Since we derive this count off a set of servers 
+        that will always be up-to-date, we have everything we need, here, going
+        forward.
+        """
+
+        if self.__rdy is None:
+            node_count = len(self.__master.nodes_s)
+
+            _logger.debug("Calculating RDY: max_in_flight=(%d) node_count=(%d)", 
+                          self.__max_in_flight, node_count)
+
+            if self.__max_in_flight >= node_count:
+                # Calculate the RDY based on the max_in_flight and total number of 
+                # servers. We always round up, or else we'd run the risk of not 
+                # facilitating some servers.
+                rdy_this = int(math.ceil(
+                                        float(self.__max_in_flight) /
+                                        float(node_count)))
+
+                _logger.debug("Assigning RDY based on max_in_flight (%d) and node "
+                              "count (%d) (optimal): (%d)", 
+                              self.__max_in_flight, node_count, rdy_this)
+            else:
+                # We have two possible scenarios:
+                # (1) The client is starting up, and the total RDY count is 
+                #     already accounted for.
+                # (2) The client is already started, and another connection has 
+                #     a (0) RDY count.
+                #
+                # In the case of (1), we'll take an RDY of (0). In the case of
+                # (2) We'll send an RDY of (1) on their behalf, before we 
+                # assume a (0) for ourself.
+
+                # Look for existing connections that have a (0) RDY (which 
+                # would've only been set to (0) intentionally).
+
+                _logger.debug("(max_in_flight > nodes). Doing RDY election.")
+
+                sleeping_connections = [
+                    c \
+                    for (c, info) \
+                    in self.__connection_context.items() \
+                    if info['rdy_count'] == 0]
+
+                _logger.debug("Current sleeping_connections: %s", 
+                              sleeping_connections)
+
+                if sleeping_connections:
+                    elected_connection = random.choice(sleeping_connections)
+                    _logger.debug("Sending RDY of (1) on: [%s]", 
+                                  elected_connection)
+
+                    command_elected = nsq.command.Command(elected_connection)
+                    command_elected.rdy(1)
+                else:
+                    _logger.debug("No sleeping connections. We got the short "
+                                  "stick: [%s]", connection)
+
+                rdy_this = 0
+        else:
+            try:
+                rdy_this = self.__rdy(
+                            connection.node, 
+                            self.__master.connection_count, 
+                            self.__master)
+
+                _logger.debug("Using RDY from callback: (%d)", rdy_this)
+            except TypeError:
+                rdy_this = self.__rdy
+                _logger.debug("Using static RDY: (%d)", rdy_this)
+
+        # Make sure that the aggregate set of RDY counts doesn't exceed the 
+        # max. This constrains the previous value, above.
+        rdy_this = min(rdy_this + \
+                        self.__get_total_rdy_count(), 
+                       self.__max_in_flight)
+
+        # Make sure we don't exceed the maximum specified by the server.
+
+        max_rdy_count = self.__master.identify.server_features['max_rdy_count']
+
+        rdy_this = min(max_rdy_count, rdy_this)
+
+        _logger.info("Final RDY (max_in_flight=(%d) max_rdy_count=(%d)): (%d)",
+                     self.__max_in_flight, max_rdy_count, rdy_this)
+
+        if rdy_this > 0:
+            command.rdy(rdy_this)
+        else:
+            _logger.info("This connection will go to sleep (not enough RDY to "
+                         "go around).")
 
         return rdy_this
+
+    def __get_total_rdy_count(self):
+        counts = [c['rdy_count'] for c in self.__connection_context.values()]
+        return sum(counts)
 
     def __initialize_connection(self, connection):
         _logger.debug("Initializing connection: [%s]", connection.node)
@@ -82,8 +177,8 @@ class _ConnectionCallbacks(object):
         return getattr(self.__original_ccallbacks, name)
 
 
-def consume(topic, channel, node_collection, rdy, ccallbacks,
-            tls_ca_bundle_filepath=None, tls_auth_pair=None, 
+def consume(topic, channel, node_collection, ccallbacks, max_in_flight, 
+            rdy=None, tls_ca_bundle_filepath=None, tls_auth_pair=None, 
             compression=False, identify=None, *args, **kwargs):
     # The consumer can interact either with producers or lookup servers 
     # (which render producers).
@@ -139,9 +234,10 @@ def consume(topic, channel, node_collection, rdy, ccallbacks,
             ccallbacks, 
             topic,
             channel,
-            rdy,
             m, 
-            connection_context)
+            connection_context,
+            max_in_flight,
+            rdy)
 
     # If we we're given an identify instance, apply our apply our identify 
     # defaults them, and then replace our identify values -with- them (so we 

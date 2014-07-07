@@ -142,8 +142,17 @@ class Master(object):
 
     @property
     def connection_count(self):
+        """This describes the connection-greenlets that we've spawned or 
+        connections that we've actually established.
+        """
+        
         return len(self.__connections)
 
     @property
     def terminate_ev(self):
         return self.__terminate_ev
+
+    @property
+    def nodes_s(self):
+        """This describes the servers that we know about."""
+        return self.__nodes_s

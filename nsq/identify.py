@@ -11,6 +11,7 @@ class Identify(object):
     def __init__(self):
         self.__parameters = {}
         self.__cached = None
+        self.__server_features = None
 
     def update(self, parameters):
         self.__cached = None
@@ -50,6 +51,10 @@ class Identify(object):
                 connection.activate_snappy()
         except KeyError:
             pass
+
+        # We're going to get a copy of this for each connection, but they 
+        # should all be identical.
+        self.__server_features = identify_info
 
     def __push(self, k, v):
         self.__parameters[k] = v
@@ -236,3 +241,7 @@ class Identify(object):
     @property
     def parameters(self):
         return self.__parameters
+
+    @property
+    def server_features(self):
+        return self.__server_features
