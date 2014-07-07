@@ -13,6 +13,7 @@ import nsq.consumer
 import nsq.node_collection
 import nsq.message_handler
 import nsq.connection_callbacks
+import nsq.identify
 
 def _configure_logging():
     logger = logging.getLogger()
@@ -64,26 +65,22 @@ class _ConnectionCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         print("Message received!")
 
 
-# TODO(dustin): We're currently passing the topic and channel twice. The first 
-#               is required to derive servers from NSQLOOKUPD hosts (if we're 
-#               using them), and the second is required to be able to subscribe 
-#               (where the topic/channel is potentially derived fro ma callback 
-#               that is given the connection).
-#
-#               The real question is whether we shouldn't allow our consumer to 
-#               represent more than one topic.
-c = nsq.consumer.Consumer(
-        _TOPIC, 
-        _CHANNEL, 
-        nc, 
-        message_handler_cls=_MessageHandler, 
-        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
-#        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
-#                       '/Users/dustin/ssl/ca_test/client.crt.pem'),
-        compression=True)
-
-c.identify.\
+i = nsq.identify.Identify()
+i.\
     client_id('11111').\
     heartbeat_interval(10 * 1000)
 
-c.run((_TOPIC, _CHANNEL), 1, ccallbacks=_ConnectionCallbacks())
+nsq.consumer.consume(
+    _TOPIC, 
+    _CHANNEL, 
+    nc, 
+    1, 
+    ccallbacks=_ConnectionCallbacks(),
+    message_handler_cls=_MessageHandler, 
+#        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
+#        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
+#                       '/Users/dustin/ssl/ca_test/client.crt.pem'),
+    compression=True,
+    identify=i)
+
+c.run()

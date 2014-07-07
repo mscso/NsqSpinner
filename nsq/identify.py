@@ -2,8 +2,6 @@ import logging
 import json
 import struct
 
-import nsq.compat
-
 _logger = logging.getLogger(__name__)
 
 IDENTIFY_COMMAND = 'IDENTIFY'
@@ -13,6 +11,10 @@ class Identify(object):
     def __init__(self):
         self.__parameters = {}
         self.__cached = None
+
+    def update(self, parameters):
+        self.__cached = None
+        self.__parameters.update(parameters)
 
     def enqueue(self, connection):
         if not self.__parameters:
@@ -75,8 +77,6 @@ class Identify(object):
         """client_id an identifier used to disambiguate this client (ie. 
         something specific to the consumer)
         """
-
-        assert issubclass(client_id.__class__, nsq.compat.str_type)
 
         return self.__push('client_id', client_id)
 
@@ -232,3 +232,7 @@ class Identify(object):
         assert issubclass(msg_timeout_ms.__class__, int)
 
         return self.__push('msg_timeout', msg_timeout_ms)
+
+    @property
+    def parameters(self):
+        return self.__parameters

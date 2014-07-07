@@ -82,77 +82,76 @@ class _ConnectionCallbacks(object):
         return getattr(self.__original_ccallbacks, name)
 
 
-class Consumer(nsq.master.Master):
-    def __init__(self, topic, channel, node_collection,
-                 tls_ca_bundle_filepath=None, tls_auth_pair=None, 
-                 compression=False, *args, **kwargs):
-        # The consumer can interact either with producers or lookup servers 
-        # (which render producers).
-        assert issubclass(
-                node_collection.__class__, 
-                (nsq.node_collection.ProducerNodes, 
-                 nsq.node_collection.LookupNodes)) is True
+def consume(topic, channel, node_collection, rdy, ccallbacks,
+            tls_ca_bundle_filepath=None, tls_auth_pair=None, 
+            compression=False, identify=None, *args, **kwargs):
+    # The consumer can interact either with producers or lookup servers 
+    # (which render producers).
+    assert issubclass(
+            node_collection.__class__, 
+            (nsq.node_collection.ProducerNodes, 
+             nsq.node_collection.LookupNodes)) is True
 
-        super(Consumer, self).__init__(*args, **kwargs)
+    m = nsq.master.Master(*args, **kwargs)
 
-        self.__node_collection = node_collection
-        self.__topic = topic
-        self.__channel = channel
-        self.__connection_context = {}
-        self.__is_tls = bool(tls_ca_bundle_filepath or tls_auth_pair)
-        self.__tls_ca_bundle_filepath = tls_ca_bundle_filepath
-        self.__tls_auth_pair = tls_auth_pair
-        self.__compression = compression
+    if ccallbacks is None:
+        ccallbacks = nsq.connection_callbacks.ConnectionCallbacks()
 
-    def __discover(self, schedule_again):
+    connection_context = {}
+    is_tls = bool(tls_ca_bundle_filepath or tls_auth_pair)
+
+    if is_tls is True:
+        if tls_ca_bundle_filepath is None:
+            raise ValueError("Please provide a CA bundle.")
+
+        nsq.connection.TLS_CA_BUNDLE_FILEPATH = tls_ca_bundle_filepath
+        nsq.connection.TLS_AUTH_PAIR = tls_auth_pair
+        m.identify.set_tls_v1()
+
+    if compression is True:
+        m.identify.set_snappy()
+
+    using_lookup = issubclass(
+                    node_collection.__class__, 
+                    nsq.node_collection.LookupNodes)
+
+    # Get a list of servers and schedule future checks (if we were given
+    # lookup servers).
+
+    def discover(schedule_again):
         """This runs in its own greenlet, and maintains a list of servers."""
-# TODO(dustin): We might want to allow for a set of different topics, and to 
-#               make connections on behalf of all of them.
-        nodes = self.__node_collection.get_servers(self.__topic)
-        self.set_servers(nodes)
+
+        nodes = node_collection.get_servers(topic)
+        m.set_servers(nodes)
 
         if schedule_again is True:
             gevent.spawn_later(
                 nsq.config.client.LOOKUP_READ_INTERVAL_S,
-                self.__discover,
+                discover,
                 True)
 
-    def run(self, rdy, ccallbacks=None):
-        if ccallbacks is None:
-            ccallbacks = nsq.connection_callbacks.ConnectionCallbacks()
+    discover(using_lookup)
 
-        if self.__is_tls is True:
-            if self.__tls_ca_bundle_filepath is None:
-                raise ValueError("Please provide a CA bundle.")
+    # Preempt the callbacks that may have been given to us in order to 
+    # keep our consumer in order.
 
-            nsq.connection.TLS_CA_BUNDLE_FILEPATH = self.__tls_ca_bundle_filepath
-            nsq.connection.TLS_AUTH_PAIR = self.__tls_auth_pair
-            self.identify.set_tls_v1()
+    cc = _ConnectionCallbacks(
+            ccallbacks, 
+            topic,
+            channel,
+            rdy,
+            m, 
+            connection_context)
 
-        if self.__compression is True:
-            self.identify.set_snappy()
+    # If we we're given an identify instance, apply our apply our identify 
+    # defaults them, and then replace our identify values -with- them (so we 
+    # don't lose the values that we set, but can allow them to set everything 
+    # else). 
+    if identify is not None:
+        identify.update(m.identify.parameters)
+        m.identify.update(identify.parameters)
 
-        using_lookup = issubclass(
-                        self.__node_collection.__class__, 
-                        nsq.node_collection.LookupNodes)
+    m.run(ccallbacks=cc)
 
-        # Get a list of servers and schedule future checks (if we were given
-        # lookup servers).
-
-        self.__discover(using_lookup)
-
-        # Preempt the callbacks that may have been given to us in order to 
-        # keep our consumer in order.
-
-        cc = _ConnectionCallbacks(
-                ccallbacks, 
-                self.__topic,
-                self.__channel,
-                rdy,
-                self, 
-                self.__connection_context)
-
-        super(Consumer, self).run(ccallbacks=cc)
-
-        # Block until we're told to terminate.
-        self.terminate_ev.wait()
+    # Block until we're told to terminate.
+    m.terminate_ev.wait()
