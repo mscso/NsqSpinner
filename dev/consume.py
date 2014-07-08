@@ -76,7 +76,8 @@ nsq.consumer.consume(
 #    tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
 #    tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
 #                   '/Users/dustin/ssl/ca_test/client.crt.pem'),
-#    compression=True,
+#    compression='deflate',
+    compression=True,
     identify=i)
 
 c.run()

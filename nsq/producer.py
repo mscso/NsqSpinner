@@ -33,8 +33,11 @@ class Producer(nsq.master.Master):
             nsq.connection.TLS_AUTH_PAIR = tls_auth_pair
             self.identify.set_tls_v1()
 
-        if compression is True:
-            self.identify.set_snappy()
+        if compression:
+            if compression is True:
+                compression = None
+
+            self.set_compression(compression)
 
         nodes = node_collection.get_servers(topic)
         self.set_servers(nodes)

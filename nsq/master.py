@@ -127,6 +127,15 @@ class Master(object):
 
         self.__nodes_s = nodes_s
 
+    def set_compression(self, specific=None):
+        if specific == 'snappy' or specific is None:
+            self.identify.set_snappy()
+        elif specific == 'deflate':
+            self.identify.set_deflate()
+        else:
+            raise ValueError("Compression scheme [%s] not valid." % 
+                             (specific,))
+
     def run(self, ccallbacks=None):
         """Establish and maintain connections."""
 

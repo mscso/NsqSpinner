@@ -36,7 +36,6 @@ class Identify(object):
                      self.__cached])
 
     def process_response(self, connection, identify_info):
-# TODO(dustin): We need to support DEFLATE compression, too.
         try:
             if identify_info['tls_v1'] is True:
                 connection.activate_tlsv1()
@@ -48,6 +47,12 @@ class Identify(object):
                 connection.activate_snappy()
         except KeyError:
             pass
+
+#        try:
+#            if identify_info['deflate'] is True:
+#                connection.activate_deflate(identify_info['deflate_level'])
+#        except KeyError:
+#            pass
 
         # We're going to get a copy of this for each connection, but they 
         # should all be identical.

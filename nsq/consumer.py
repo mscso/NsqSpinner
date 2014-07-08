@@ -213,8 +213,11 @@ def consume(topic, channel, node_collection, max_in_flight, ccallbacks=None,
         nsq.connection.TLS_AUTH_PAIR = tls_auth_pair
         m.identify.set_tls_v1()
 
-    if compression is True:
-        m.identify.set_snappy()
+    if compression:
+        if compression is True:
+            compression = None
+
+        m.set_compression(compression)
 
     using_lookup = issubclass(
                     node_collection.__class__, 

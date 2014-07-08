@@ -5,6 +5,7 @@ import json
 import pprint
 import datetime
 import io
+import functools
 
 import gevent
 import gevent.select
@@ -156,12 +157,31 @@ class _ManagedConnection(object):
         # one length is received and data of another length is returned, it 
         # makes things a little nicer to just enable it here (a little early), 
         # so that we can grab the Snappy response without difficulty.
-        _logger.debug("Enabling buffering a little early.")
+        _logger.debug("Enabling buffering a little early (1).")
         self.__do_buffered_reads = True
 
         # There should be an OK waiting in the pipeline.
         _logger.debug("Waiting for Snappy success response.")
         self.__read_frame()
+
+# TODO(dustin): Needs debugging.
+#    def activate_deflate(self, level):
+#        _logger.info("Activating Deflate compression.")
+#
+#        import zlib
+#
+#        compress = zlib.compressobj(level)
+#        self.__write_filters.append(lambda x: compress.compress(x) + compress.flush())
+#
+#        decompress = zlib.decompressobj(16+zlib.MAX_WBITS)
+#        self.__read_filters.append(lambda x: decompress.decompress(x) + decompress.flush())
+#
+#        _logger.debug("Enabling buffering a little early (2).")
+#        self.__do_buffered_reads = True
+#
+#        # There should be an OK waiting in the pipeline.
+#        _logger.debug("Waiting for Deflate success response.")
+#        self.__read_frame()
 
     def activate_tlsv1(self):
         if TLS_CA_BUNDLE_FILEPATH is None:
