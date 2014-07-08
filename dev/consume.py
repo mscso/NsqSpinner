@@ -7,17 +7,16 @@ sys.path.insert(0, dev_path)
 
 import logging
 import json
-import gevent.queue
 
 import nsq.consumer
 import nsq.node_collection
 import nsq.message_handler
-import nsq.connection_callbacks
 import nsq.identify
 
 def _configure_logging():
     logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
+#    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
 
     format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     formatter = logging.Formatter(format)
@@ -31,6 +30,8 @@ _configure_logging()
 _TOPIC = 'test_topic'
 _CHANNEL = 'test_channel'
 
+# TODO(dustin): Test using direct TCP endpoints (not using lookupd)
+
 lookup_node_prefixes = [
     'http://127.0.0.1:4161'
 ]
@@ -41,12 +42,15 @@ nc = nsq.node_collection.LookupNodes(lookup_node_prefixes)
 
 
 class _MessageHandler(nsq.message_handler.MessageHandler):
+    def message_received(self, connection, message):
+        super(_MessageHandler, self).message_received(connection, message)
+        self.__decoded = json.loads(message.body)
+
     def classify_message(self, message):
-        decoded = json.loads(message.body)
-        return (decoded['type'], decoded)
+        return (self.__decoded['type'], self.__decoded)
 
     def handle_dummy(self, connection, message, context):
-        print("Handling!")
+        print("Handling: %s" % (self.__decoded,))
 
     def default_message_handler(self, message_class, connection, message, 
                                 classify_context):
@@ -54,33 +58,25 @@ class _MessageHandler(nsq.message_handler.MessageHandler):
               (message_class, message))
 
 
-class _ConnectionCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
-    def connect(self, c):
-        print("Connect!")
-
-    def broken(self, c):
-        print("Broken!")
-
-    def message_received(self, connection, message):
-        print("Message received!")
-
-
 i = nsq.identify.Identify()
 i.\
-    client_id('11111').\
     heartbeat_interval(10 * 1000)
+#    client_id('11111').\
+
+# TODO(dustin): If we connect while there are already jobs waiting to be 
+#               handled, we'll receive one, and then have to wait thirty-
+#               seconds until we receive the rest.
 
 nsq.consumer.consume(
     _TOPIC, 
     _CHANNEL, 
     nc, 
-    _ConnectionCallbacks(),
     500, 
     message_handler_cls=_MessageHandler, 
-    tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
+#    tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
 #    tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
 #                   '/Users/dustin/ssl/ca_test/client.crt.pem'),
-    compression=True,
+#    compression=True,
     identify=i)
 
 c.run()

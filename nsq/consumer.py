@@ -1,6 +1,4 @@
 import logging
-import types
-import functools
 import math
 import random
 
@@ -189,7 +187,7 @@ class _ConnectionCallbacks(object):
         return getattr(self.__original_ccallbacks, name)
 
 
-def consume(topic, channel, node_collection, ccallbacks, max_in_flight, 
+def consume(topic, channel, node_collection, max_in_flight, ccallbacks=None, 
             rdy=None, tls_ca_bundle_filepath=None, tls_auth_pair=None, 
             compression=False, identify=None, *args, **kwargs):
     # The consumer can interact either with producers or lookup servers 
@@ -199,10 +197,10 @@ def consume(topic, channel, node_collection, ccallbacks, max_in_flight,
             (nsq.node_collection.ProducerNodes, 
              nsq.node_collection.LookupNodes)) is True
 
-    m = nsq.master.Master(*args, **kwargs)
-
     if ccallbacks is None:
         ccallbacks = nsq.connection_callbacks.ConnectionCallbacks()
+
+    m = nsq.master.Master(*args, **kwargs)
 
     connection_context = {}
     is_tls = bool(tls_ca_bundle_filepath or tls_auth_pair)

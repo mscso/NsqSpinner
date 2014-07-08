@@ -65,11 +65,12 @@ class Master(object):
 
         # Spawn the message handler.
 
-        message_handler = self.__message_handler_cls(self.__election, ccallbacks)
+        if self.__message_handler_cls is not None:
+            message_handler = self.__message_handler_cls(self.__election, ccallbacks)
 
-        gevent.spawn(
-            message_handler.run, 
-            self.__message_q)
+            gevent.spawn(
+                message_handler.run, 
+                self.__message_q)
 
         # Loop, and maintain all connections.
 

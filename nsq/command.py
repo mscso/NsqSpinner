@@ -28,13 +28,13 @@ class Command(object):
         return struct.pack('!I', len(data))
 
     def __pack(self, data):
-        return self.__get_packed_length(data) + data
+        return (self.__get_packed_length(data), data)
 
-    def pub(self, topic, data):
+    def pub(self, topic, message):
 # TODO(dustin): Test this.
         self.__c.send_command(
             ('PUB', topic), 
-            [self.__pack(data)])
+            self.__pack(message))
 
     def mpub(self, topic, messages):
 # TODO(dustin): Test this.
@@ -42,7 +42,9 @@ class Command(object):
 
         count = 0
         for message in messages:
-            s.write(self.__pack(message))
+            for part in self.__pack(message):
+                s.write(part)
+
             count += 1
 
         multiple_message_data = s.getvalue()

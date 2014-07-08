@@ -36,10 +36,7 @@ class Identify(object):
                      self.__cached])
 
     def process_response(self, connection, identify_info):
-
-# TODO(dustin): Does a producer receive a job response, or do we have to push a 
-#               new job in order to deliver the result?
-
+# TODO(dustin): We need to support DEFLATE compression, too.
         try:
             if identify_info['tls_v1'] is True:
                 connection.activate_tlsv1()
