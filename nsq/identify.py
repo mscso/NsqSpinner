@@ -48,11 +48,11 @@ class Identify(object):
         except KeyError:
             pass
 
-#        try:
-#            if identify_info['deflate'] is True:
-#                connection.activate_deflate(identify_info['deflate_level'])
-#        except KeyError:
-#            pass
+        try:
+            if identify_info['deflate'] is True:
+                connection.activate_deflate(identify_info['deflate_level'])
+        except KeyError:
+            pass
 
         # We're going to get a copy of this for each connection, but they 
         # should all be identical.

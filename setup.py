@@ -3,18 +3,18 @@ import os.path
 
 import nsq
 
-app_path = os.path.dirname(nsq.__file__)
+_APP_PATH = os.path.dirname(nsq.__file__)
 
-with open(os.path.join(app_path, 'resources', 'README.rst')) as f:
+with open(os.path.join(_APP_PATH, 'resources', 'README.rst')) as f:
       long_description = f.read()
 
-with open(os.path.join(app_path, 'resources', 'requirements.txt')) as f:
-      install_requires = map(lambda s: s.strip(), f)
+with open(os.path.join(_APP_PATH, 'resources', 'requirements.txt')) as f:
+      install_requires = list(map(lambda s: s.strip(), f.readlines()))
 
 setuptools.setup(
-      name='nsq',
+      name='nsqs',
       version=nsq.__version__,
-      description="A greenlet-based NSQ client.",
+      description="A complete, gevent-based, non-Tornado NSQ client.",
       long_description=long_description,
       classifiers=[],
       keywords='',
@@ -25,7 +25,7 @@ setuptools.setup(
       packages=setuptools.find_packages(exclude=['dev']),
       include_package_data=True,
       zip_safe=False,
-      install_requires=install_requires,
+#      install_requires=install_requires,
       package_data={
           'nsq': ['resources/README.rst',
                   'resources/requirements.txt'],
