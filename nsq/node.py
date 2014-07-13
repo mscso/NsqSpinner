@@ -37,12 +37,27 @@ class Node(object):
         return ('<NODE [%s] [%s]>' % 
                 (self.__class__.__name__, self.__server_host))
 
+    def connect(self):
+        raise NotImplementedError()
+
+# TODO(dustin): This version always blocks for five-seconds.
+#
+#    def primitive_connect(self):
+#        return gevent.socket.create_connection(
+#                self.server_host)
+#
+    def primitive_connect(self):
+        s = gevent.socket.socket(
+                gevent.socket.AF_INET, 
+                gevent.socket.SOCK_STREAM)
+
+        s.connect(self.server_host)
+
+        return s
+
     @property
     def server_host(self):
         return self.__server_host
-
-    def connect(self):
-        raise NotImplementedError()
 
 
 class DiscoveredNode(Node):
@@ -64,9 +79,7 @@ class DiscoveredNode(Node):
 
         while stop_epoch >= time.time():
             try:
-                c = gevent.socket.create_connection(
-                        self.server_host, 
-                        timeout=1)
+                c = self.primitive_connect()
             except gevent.socket.error:
                 _logger.exception("Could not connect to discovered server: "
                                   "[%s]", self.server_host)
@@ -103,9 +116,7 @@ class ServerNode(Node):
         # will give it back to us.
 
         try:
-            c = gevent.socket.create_connection(
-                    self.server_host, 
-                    timeout=1)
+            c = self.primitive_connect()
         except gevent.socket.error:
             _logger.exception("Could not connect to explicit server: [%s]",
                               self.server_host)
