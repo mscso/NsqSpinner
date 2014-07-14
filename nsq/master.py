@@ -13,8 +13,14 @@ _logger = logging.getLogger(__name__)
 
 
 class Master(object):
-    def __init__(self, message_handler_cls=None):
+    """This class is responsible to orchestrating connections and greenlets 
+    common to both producers and consumers.
+    """
+
+    def __init__(self, connection_ignore_quit=False, message_handler_cls=None):
+        self.__connection_ignore_quit = connection_ignore_quit
         self.__message_handler_cls = message_handler_cls
+
         self.__nodes_s = set()
         self.__identify = nsq.identify.Identify().set_feature_negotiation()
         self.__connections = []
@@ -24,6 +30,8 @@ class Master(object):
         self.__quit_ev = gevent.event.Event()
 
     def __start_connection(self, node, ccallbacks=None):
+        """Start a new connection, and manage it from a new greenlet."""
+
         _logger.debug("Creating connection object: [%s]", node)
 
         c = nsq.connection.Connection(
@@ -31,29 +39,23 @@ class Master(object):
                 self.__identify, 
                 self.__message_q,
                 self.__quit_ev,
-                ccallbacks)
+                ccallbacks,
+                ignore_quit=self.__connection_ignore_quit)
 
         g = gevent.spawn(c.run)
         self.__connections.append((node, c, g))
 
-    def __manage_connections(self, ccallbacks=None):
-        _logger.info("Running client.")
-
-        # Spawn connections to all of the servers.
-
-        for node in self.__nodes_s:
-            self.__start_connection(node, ccallbacks)
-
-        # Wait until at least one server is connected. Since quitting relies on 
-        # a bunch of loops terminating, attempting to quit [cleanly] 
-        # immediately will still have to wait for the connections to finish 
-        # starting.
+    def __wait_for_one_server_connection(self):
+        """Wait until at least one server is connected. Since quitting relies 
+        on a bunch of loops terminating, attempting to quit [cleanly] 
+        immediately will still have to wait for the connections to finish 
+        starting.
+        """
 
         _logger.info("Waiting for first connection.")
 
-        is_connected_to_one = False
         while 1:
-
+            is_connected_to_one = False
             for (n, c, g) in self.__connections:
                 if c.is_connected is True:
                     is_connected_to_one = True
@@ -62,21 +64,10 @@ class Master(object):
             if is_connected_to_one is True:
                 break
 
-# TODO(dustin): Put this into config.
-            gevent.sleep(.1)
+            gevent.sleep(nsq.config.client.CONNECT_AUDIT_WAIT_INTERVAL_S)
 
-        self.__ready_ev.set()
-
-        # Spawn the message handler.
-
-        if self.__message_handler_cls is not None:
-            message_handler = self.__message_handler_cls(self.__election, ccallbacks)
-
-            gevent.spawn(
-                message_handler.run, 
-                self.__message_q)
-
-        # Loop, and maintain all connections.
+    def __audit_connections(self):
+        """Monitor state of all connections, and utility of all servers."""
 
 # TODO(dustin): We should set quit_ev when we've encountered a critical 
 #               error and had to kill all of the greenlets.
@@ -113,19 +104,26 @@ class Master(object):
                 if not connected_nodes_s:
                     raise EnvironmentError("All servers have gone away.")
 
+            interval_s = \
+                nsq.config.client.GRANULAR_CONNECTION_AUDIT_SLEEP_STEP_TIME_S
 
-            interval_s = .5
             audit_wait_s = float(nsq.config.client.CONNECTION_AUDIT_WAIT_S)
 
-            while audit_wait_s > 0:
+            while audit_wait_s > 0 and\
+                  self.__quit_ev.is_set() is False:
                 gevent.sleep(interval_s)
                 audit_wait_s -= interval_s
 
+    def __join_connections(self):
+        """Wait for all connections to close. There are no side-effects here. 
+        We just want to try and leave -after- everything has closed, in 
+        general.
+        """
+
         connection_greenlets = [g for (n, c, g) in self.__connections]
 
-# TODO(dustin): Put these constants in the config.
-        interval_s = .5
-        graceful_wait_s = 5.0
+        interval_s = nsq.config.client.CONNECTION_CLOSE_AUDIT_WAIT_S
+        graceful_wait_s = nsq.config.client.CONNECTION_QUIT_CLOSE_TIMEOUT_S
         graceful = False
 
         while graceful_wait_s > 0:
@@ -148,9 +146,44 @@ class Master(object):
             _logger.error("We were told to terminate, but not all "
                           "connections were stopped: [%s]", connected_list)
 
+    def __manage_connections(self, ccallbacks=None):
+        """This runs as the main connection management greenlet."""
+
+        _logger.info("Running client.")
+
+        # Spawn connections to all of the servers.
+
+        for node in self.__nodes_s:
+            self.__start_connection(node, ccallbacks)
+
+        # Wait for at least one connection to the server.
+        self.__wait_for_one_server_connection()
+
+        # Indicate that the client is okay to pass control back to the caller.
+        self.__ready_ev.set()
+
+        # Spawn the message handler.
+
+        if self.__message_handler_cls is not None:
+            message_handler = self.__message_handler_cls(self.__election, ccallbacks)
+
+            gevent.spawn(
+                message_handler.run, 
+                self.__message_q)
+
+        # Loop, and maintain all connections. This exists when the quit event 
+        # is set.
+        self.__audit_connections()
+
+        # Wait for all of the connections to close. They will respond to the 
+        # same quit event that terminate the audit loop just above.
+        self.__join_connections()
+
         _logger.info("Connection management has stopped.")
 
     def set_servers(self, nodes):
+        """Set the current collection of servers."""
+
         nodes_s = set(nodes)
 
         if nodes_s != self.__nodes_s:
@@ -182,6 +215,8 @@ class Master(object):
         self.__ready_ev.wait()
 
     def stop(self):
+        """Stop all of the connections."""
+
         _logger.debug("Emitting quit signal for connections.")
         self.__quit_ev.set()
 

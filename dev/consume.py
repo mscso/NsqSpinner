@@ -91,10 +91,16 @@ c = nsq.consumer.Consumer(
 #        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
 #                       '/Users/dustin/ssl/ca_test/client.crt.pem'),
 #        compression='deflate',
-        compression=True,
+#        compression=True,
         identify=i)
 
 c.start()
+
+#n = 20
+#while n > 0:
+#    gevent.sleep(1)
+#
+#    n -= 1
 
 while 1:
     gevent.sleep(1)

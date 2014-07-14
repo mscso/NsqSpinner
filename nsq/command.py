@@ -31,7 +31,6 @@ class Command(object):
         return (self.__get_packed_length(data), data)
 
     def pub(self, topic, message):
-# TODO(dustin): Test this.
         self.__c.send_command(
             ('PUB', topic), 
             self.__pack(message))
@@ -74,5 +73,7 @@ class Command(object):
             wait_for_response=False)
 
     def cls(self):
-# TODO(dustin): Test this.
-        self.__c.send_command('CLS')
+        r = self.__c.send_command('CLS')
+        _logger.debug("CLS response received ([%s]). Closing connection.", r)
+
+        self.__c.force_quit_ev.set()

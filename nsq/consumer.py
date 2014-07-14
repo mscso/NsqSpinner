@@ -202,7 +202,7 @@ class Consumer(object):
 
         # Create connection manager.
 
-        m = nsq.master.Master(*args, **kwargs)
+        m = nsq.master.Master(connection_ignore_quit=True, *args, **kwargs)
 
         # Translate some of our parameters to IDENTIFY parameters.
 
@@ -314,6 +314,10 @@ class Consumer(object):
     def stop(self):
         _logger.debug("Setting quit event for the consumer.")
         self.__quit_ev.set()
+
+        _logger.info("Asking server to close connections.")
+        ce = nsq.connection_election.ConnectionElection(self.__m)
+        ce.command_for_all_connections(lambda command: command.cls())
 
         _logger.info("Waiting for the consumer to stop.")
         self.__consume_blocker_g.join()

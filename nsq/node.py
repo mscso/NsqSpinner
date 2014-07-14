@@ -9,9 +9,6 @@ import nsq.exceptions
 
 _logger = logging.getLogger(__name__)
 
-# TODO(dustin): Our create_connection() calls are taking five-seconds every 
-#               time.
-
 
 class Node(object):
     def __init__(self, server_host):

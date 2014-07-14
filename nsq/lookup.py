@@ -25,19 +25,14 @@ class Lookup(object):
 
             _logger.debug("Polling lookup server: [%s]", url)
 
-            try:
-                r = requests.get(url)
-                r.raise_for_status()
+            r = requests.get(url)
+            r.raise_for_status()
 
-                data = r.json()
+            data = r.json()
 
-                for producer_info in data['data']['producers']:
-                    servers.add(
-                        (producer_info['broadcast_address'].lower(), 
-                         int(producer_info['tcp_port'])))
-            except:
-                _logger.exception("Lookup server failed: [%s]", url)
-# TODO(dustin): Catch a specific exception. Log failures.
-                continue
+            for producer_info in data['data']['producers']:
+                servers.add(
+                    (producer_info['broadcast_address'].lower(), 
+                     int(producer_info['tcp_port'])))
 
         return list(servers)

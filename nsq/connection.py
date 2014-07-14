@@ -15,6 +15,7 @@ import gevent.ssl
 
 import nsq.config
 import nsq.config.protocol
+import nsq.config.client
 import nsq.constants
 import nsq.exceptions
 import nsq.node
@@ -108,7 +109,8 @@ class _Buffer(object):
 
 
 class _ManagedConnection(object):
-    def __init__(self, node, connection, identify, message_q, quit_ev, ccallbacks=None):
+    def __init__(self, node, connection, identify, message_q, nice_quit_ev, 
+                 ccallbacks=None, ignore_quit=False):
         self.__node = node
         self.__c = connection
         self.__identify = identify
@@ -132,7 +134,13 @@ class _ManagedConnection(object):
 
         self.__do_buffered_reads = False
 
-        self.__quit_ev = quit_ev
+        # This event is triggered by the consumer.
+        self.__nice_quit_ev = nice_quit_ev
+        self.__ignore_quit = ignore_quit
+
+        # This event is triggered by us if the CLS command goes out and gets 
+        # responded to.
+        self.__force_quit_ev = gevent.event.Event()
 
     def __str__(self):
         return ('<CONNECTION %s>' % (self.__c.getpeername(),))
@@ -374,8 +382,7 @@ class _ManagedConnection(object):
 
     def __read_buffered(self, length):
         while self.__buffer.size < length:
-# TODO(dustin): Put the receive block-size into the config.
-            data = self.__c.recv(8192)
+            data = self.__c.recv(nsq.config.client.BUFFER_READ_CHUNK_SIZE_B)
             data = self.__filter_incoming_data(data)
             
             if data:
@@ -443,7 +450,11 @@ class _ManagedConnection(object):
         if self.__ccallbacks is not None:
             self.__ccallbacks.connect(self)
 
-        while self.__quit_ev.is_set() is False:
+        # If we're ignoring the quit, the connections will have to be closed 
+        # by the server.
+        while (self.__ignore_quit is True or \
+               self.__nice_quit_ev.is_set() is False) and \
+              self.__force_quit_ev.is_set() is False:
             hit = False
 
 # TODO(dustin): Consider breaking the loop if we haven't yet retried to 
@@ -453,7 +464,7 @@ class _ManagedConnection(object):
                         [self.__c], 
                         [], 
                         [], 
-                        timeout=0)#nsq.config.protocol.READ_SELECT_TIMEOUT_S)
+                        timeout=0)
 
             if status[0]:
                 hit = True
@@ -472,10 +483,12 @@ class _ManagedConnection(object):
                 self.__send_command_primitive(command, parts)
 
             if hit is False:
-# TODO(dustin): Move this to config.
-                gevent.sleep(.1)
+                gevent.sleep(nsq.config.client.READWRITE_THROTTLE_S)
 
-        _logger.debug("Connection interaction has stopped: %s", self)
+        _logger.debug("Connection interaction has stopped (IGNORE_QUIT=[%s] "
+                      "NICE_QUIT_EV=[%s] FORCE_QUIT_EV=[%s]): %s", 
+                      self.__ignore_quit, self.__nice_quit_ev.is_set(), 
+                      self.__force_quit_ev.is_set(), self)
 
     @property
     def command(self):
@@ -485,16 +498,22 @@ class _ManagedConnection(object):
     def node(self):
         return self.__node
 
+    @property
+    def force_quit_ev(self):
+        return self.__force_quit_ev
+
 
 class Connection(object):
-    def __init__(self, node, identify, message_q, quit_ev, ccallbacks=None):
+    def __init__(self, node, identify, message_q, nice_quit_ev, 
+                 ccallbacks=None, ignore_quit=False):
         self.__node = node
         self.__identify = identify
         self.__message_q = message_q
         self.__is_connected = False
         self.__mc = None
-        self.__quit_ev = quit_ev
+        self.__nice_quit_ev = nice_quit_ev
         self.__ccallbacks = ccallbacks
+        self.__ignore_quit = ignore_quit
 
     def __connect(self):
         _logger.debug("Connecting node: [%s]", self.__node)
@@ -511,8 +530,9 @@ class Connection(object):
                         c, 
                         self.__identify,
                         self.__message_q,
-                        self.__quit_ev,
-                        self.__ccallbacks)
+                        self.__nice_quit_ev,
+                        self.__ccallbacks,
+                        ignore_quit=self.__ignore_quit)
 
         try:
             self.__mc.interact()
@@ -527,7 +547,7 @@ class Connection(object):
         available.
         """
 
-        while self.__quit_ev.is_set() is False:
+        while self.__nice_quit_ev.is_set() is False:
             self.__connect()
 
         _logger.info("Connection re-connect loop has terminated: %s", self)
