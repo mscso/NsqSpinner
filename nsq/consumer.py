@@ -323,3 +323,11 @@ class Consumer(object):
         self.__consume_blocker_g.join()
 
         _logger.debug("Consumer stop complete.")
+
+    @property
+    def is_alive(self):
+        """This can be used to determine if the -all- servers disappeared and 
+        left us no recourse.
+        """
+
+        return self.__m.is_alive

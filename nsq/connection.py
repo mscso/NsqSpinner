@@ -113,6 +113,8 @@ class _ManagedConnection(object):
                  ccallbacks=None, ignore_quit=False):
         self.__node = node
         self.__c = connection
+        self.__c_peer = connection.getpeername()
+
         self.__identify = identify
         self.__message_q = message_q
         self.__ccallbacks = ccallbacks
@@ -143,7 +145,7 @@ class _ManagedConnection(object):
         self.__force_quit_ev = gevent.event.Event()
 
     def __str__(self):
-        return ('<CONNECTION %s>' % (self.__c.getpeername(),))
+        return ('<CONNECTION %s>' % (self.__c_peer,))
 
     def __send_hello(self):
         """Initiate the handshake."""
@@ -424,8 +426,8 @@ class _ManagedConnection(object):
         (length,) = struct.unpack('!I', self.__read(4))
 
         _logger.debug("Reading (%d) more bytes", length)
-
         (frame_type,) = struct.unpack('!I', self.__read(4))
+
         data = self.__read(length - 4)
 
         self.__process_message(frame_type, data)
@@ -518,7 +520,7 @@ class Connection(object):
     def __connect(self):
         _logger.debug("Connecting node: [%s]", self.__node)
 
-        c = self.__node.connect()
+        c = self.__node.connect(self.__nice_quit_ev)
 
         _logger.debug("Node connected and being handed-off to be managed: "
                       "[%s]", self.__node)

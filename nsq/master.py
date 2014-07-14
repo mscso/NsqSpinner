@@ -28,6 +28,7 @@ class Master(object):
         self.__ready_ev = gevent.event.Event()
         self.__election = nsq.connection_election.ConnectionElection(self)
         self.__quit_ev = gevent.event.Event()
+        self.__is_alive = False
 
     def __start_connection(self, node, ccallbacks=None):
         """Start a new connection, and manage it from a new greenlet."""
@@ -66,11 +67,8 @@ class Master(object):
 
             gevent.sleep(nsq.config.client.CONNECT_AUDIT_WAIT_INTERVAL_S)
 
-    def __audit_connections(self):
+    def __audit_connections(self, ccallbacks):
         """Monitor state of all connections, and utility of all servers."""
-
-# TODO(dustin): We should set quit_ev when we've encountered a critical 
-#               error and had to kill all of the greenlets.
 
         while self.__quit_ev.is_set() is False:
             # Remove any connections that are dead.
@@ -97,12 +95,24 @@ class Master(object):
             unused_nodes_s = self.__nodes_s - connected_nodes_s
 
             for node in unused_nodes_s:
-                _logger.info("We've received a new server.")
+                _logger.info("Trying to connect unconnected server: %s", node)
                 self.__start_connection(node, ccallbacks)
             else:
                 # Are there both no unused servers and no connected servers?
                 if not connected_nodes_s:
-                    raise EnvironmentError("All servers have gone away.")
+                    _logger.error("All servers have gone away. Stopping "
+                                  "client.")
+
+                    # Clear our list of servers, and squash the "no servers!" 
+                    # error so that we can shut things down in the right order.
+
+                    try:
+                        self.set_servers([])
+                    except EnvironmentError:
+                        pass
+
+                    self.__quit_ev.set()
+                    return
 
             interval_s = \
                 nsq.config.client.GRANULAR_CONNECTION_AUDIT_SLEEP_STEP_TIME_S
@@ -160,6 +170,7 @@ class Master(object):
         self.__wait_for_one_server_connection()
 
         # Indicate that the client is okay to pass control back to the caller.
+        self.__is_alive = True
         self.__ready_ev.set()
 
         # Spawn the message handler.
@@ -173,13 +184,15 @@ class Master(object):
 
         # Loop, and maintain all connections. This exists when the quit event 
         # is set.
-        self.__audit_connections()
+        self.__audit_connections(ccallbacks)
 
         # Wait for all of the connections to close. They will respond to the 
         # same quit event that terminate the audit loop just above.
         self.__join_connections()
 
         _logger.info("Connection management has stopped.")
+
+        self.__is_alive = False
 
     def set_servers(self, nodes):
         """Set the current collection of servers."""
@@ -243,3 +256,9 @@ class Master(object):
     def nodes_s(self):
         """This describes the servers that we know about."""
         return self.__nodes_s
+
+    @property
+    def is_alive(self):
+        """If the client is still healthy and active."""
+
+        return self.__is_alive

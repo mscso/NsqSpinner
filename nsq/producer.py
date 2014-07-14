@@ -8,6 +8,9 @@ import nsq.connection_election
 
 _logger = logging.getLogger(__name__)
 
+# TODO(dustin): We won't fail out if the producer tries to connect to 
+#               nonexistent servers.
+
 
 class Producer(nsq.master.Master):
     def __init__(self, topic, node_collection, tls_ca_bundle_filepath=None, 

@@ -110,5 +110,11 @@ class MessageHandler(object):
 
         self.__ccallbacks.message_received(connection, message)
 
+    @property
+    def ce(self):
+        """Dispatch a command."""
+
+        return self.__ce
+
     def classify_message(self, message):
         raise NotImplementedError()

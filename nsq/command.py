@@ -24,11 +24,9 @@ class Command(object):
     def fin(self, message_id):
         self.__c.send_command(('FIN', message_id), wait_for_response=False)
 
-    def __get_packed_length(self, data):
-        return struct.pack('!I', len(data))
-
     def __pack(self, data):
-        return (self.__get_packed_length(data), data)
+        return (struct.pack('!I', len(data)), 
+                data)
 
     def pub(self, topic, message):
         self.__c.send_command(
@@ -48,9 +46,11 @@ class Command(object):
 
         multiple_message_data = s.getvalue()
 
-        packed_message_count = self.__get_packed_length(count)
-        packed_length = len(packed_message_count) + \
-                        self.__get_packed_length(multiple_message_data)
+        packed_message_count = struct.pack('!I', count)
+
+        packed_length = struct.pack('!I', 
+                            len(packed_message_count) + 
+                            len(multiple_message_data))
 
         self.__c.send_command(
             ('MPUB', topic), 

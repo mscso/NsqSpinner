@@ -55,13 +55,13 @@ p = nsq.producer.Producer(
 
 p.start()
 
-for i in range(10000):
+for i in range(0, 100000, 10):
     if i % 50 == 0:
         print(i)
 
     data = { 'type': 'dummy', 'data': random.random(), 'index': i }
     message = json.dumps(data)
-    p.publish(message)
+    p.mpublish((message,) * 10)
 
 print("Stopping producer.")
 p.stop()

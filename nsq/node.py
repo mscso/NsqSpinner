@@ -34,7 +34,7 @@ class Node(object):
         return ('<NODE [%s] [%s]>' % 
                 (self.__class__.__name__, self.__server_host))
 
-    def connect(self):
+    def connect(self, nice_quit_ev):
         raise NotImplementedError()
 
 # TODO(dustin): This version always blocks for five-seconds.
@@ -60,7 +60,7 @@ class Node(object):
 class DiscoveredNode(Node):
     """Represents a node that we found via lookup servers."""
 
-    def connect(self):
+    def connect(self, nice_quit_ev):
         """Connect the server. We expect this to implement backoff and all 
         connection logistics for servers that were discovered via a lookup 
         node.
@@ -74,7 +74,7 @@ class DiscoveredNode(Node):
         timeout_s = nsq.config.client.INITIAL_CONNECT_FAIL_WAIT_S
         backoff_rate = nsq.config.client.CONNECT_FAIL_WAIT_BACKOFF_RATE
 
-        while stop_epoch >= time.time():
+        while stop_epoch >= time.time() and nice_quit_ev.is_set() is False:
             try:
                 c = self.primitive_connect()
             except gevent.socket.error:
@@ -100,7 +100,7 @@ class DiscoveredNode(Node):
 class ServerNode(Node):
     """Represents a node that was explicitly prescribed."""
 
-    def connect(self):
+    def connect(self, nice_quit_ev):
         """Connect the server. We expect this to implement connection logistics 
         for servers that were explicitly prescribed to us.
         """ 
