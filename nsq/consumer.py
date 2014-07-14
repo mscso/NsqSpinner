@@ -125,8 +125,8 @@ class _ConnectionCallbacks(object):
         max_rdy_count = self.__master.identify.server_features['max_rdy_count']
         rdy_this = min(max_rdy_count, rdy_this)
 
-        _logger.info("Final RDY (max_in_flight=(%d) max_rdy_count=(%d)): (%d)",
-                     self.__max_in_flight, max_rdy_count, rdy_this)
+        _logger.debug("Final RDY (max_in_flight=(%d) max_rdy_count=(%d)): "
+                      "(%d)", self.__max_in_flight, max_rdy_count, rdy_this)
 
         if rdy_this > 0:
             command.rdy(rdy_this)
@@ -170,8 +170,8 @@ class _ConnectionCallbacks(object):
             self.__connection_context[connection]['rdy_original'] // 4
         if self.__connection_context[connection]['rdy_count'] <= \
                 repost_threshold:
-            _logger.info("RDY count has reached zero for [%s]. Re-"
-                         "setting.", connection)
+            _logger.debug("RDY count has reached zero for [%s]. Re-"
+                          "setting.", connection)
 
             command = nsq.command.Command(connection)
             rdy = self.__send_rdy(connection, command)

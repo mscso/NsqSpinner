@@ -55,7 +55,7 @@ p = nsq.producer.Producer(
 
 p.start()
 
-for i in range(1000):
+for i in range(10000):
     if i % 50 == 0:
         print(i)
 

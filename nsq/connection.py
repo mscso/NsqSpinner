@@ -249,7 +249,9 @@ class _ManagedConnection(object):
             self.__do_buffered_reads = True
 
             if self.__ccallbacks is not None:
-                self.__ccallbacks.identify(self)
+                # This has to be spawned, or we might not be able process 
+                # responses to any commands that it might send.
+                gevent.spawn(self.__ccallbacks.identify, self)
 
         # Else, store the response. Whoever queued the last command can wait 
         # for the next response to be set. Each connection works in a serial
@@ -312,8 +314,7 @@ class _ManagedConnection(object):
             self.__primitive_send(part)
 
     def queue_message(self, command, parts):
-        _logger.debug("Queueing command: [%s] (%d)", 
-                      self.__distill_command_name(command), len(parts))
+        _logger.debug("Queueing command: [%s] (%d)", command, len(parts))
 
         self.__outgoing_q.put((command, parts))
 

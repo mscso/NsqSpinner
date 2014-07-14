@@ -16,9 +16,11 @@ import nsq.message_handler
 import nsq.identify
 
 def _configure_logging():
+    logging.getLogger('requests').setLevel(logging.WARNING)
+
     logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
-#    logger.setLevel(logging.INFO)
+#    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
 
     format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     formatter = logging.Formatter(format)
@@ -44,6 +46,10 @@ nc = nsq.node_collection.LookupNodes(lookup_node_prefixes)
 
 
 class _MessageHandler(nsq.message_handler.MessageHandler):
+    def __init__(self, *args, **kwargs):
+        super(_MessageHandler, self).__init__(*args, **kwargs)
+        self.__processed = 0
+
     def message_received(self, connection, message):
         super(_MessageHandler, self).message_received(connection, message)
         self.__decoded = json.loads(message.body)
@@ -52,7 +58,12 @@ class _MessageHandler(nsq.message_handler.MessageHandler):
         return (self.__decoded['type'], self.__decoded)
 
     def handle_dummy(self, connection, message, context):
-        print("Handling: %s" % (self.__decoded,))
+        self.__processed += 1
+
+        if self.__processed % 1000 == 0:
+            print("Processed (%d) messages." % (self.__processed,))
+
+#        print("Handling: %s" % (self.__decoded,))
 
     def default_message_handler(self, message_class, connection, message, 
                                 classify_context):
@@ -76,18 +87,16 @@ c = nsq.consumer.Consumer(
         nc, 
         500, 
         message_handler_cls=_MessageHandler, 
-        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
-#    tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
-#                   '/Users/dustin/ssl/ca_test/client.crt.pem'),
-        compression='deflate',
-#    compression=True,
+#        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
+#        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
+#                       '/Users/dustin/ssl/ca_test/client.crt.pem'),
+#        compression='deflate',
+        compression=True,
         identify=i)
 
 c.start()
 
-stop_at = time.time() + 10
-
-while time.time() < stop_at:
+while 1:
     gevent.sleep(1)
 
 print("Stopping consumer.")
