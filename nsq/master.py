@@ -182,10 +182,10 @@ class Master(object):
         self.__ready_ev.wait()
 
     def stop(self):
-        _logger.debug("Emitting quit signal to consumer greenlets.")
+        _logger.debug("Emitting quit signal for connections.")
         self.__quit_ev.set()
 
-        _logger.info("Waiting for consumer workings to stop.")
+        _logger.info("Waiting for connection manager to stop.")
         self.__manage_g.join()
 
     @property

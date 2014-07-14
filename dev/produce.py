@@ -63,4 +63,6 @@ for i in range(10000):
     message = json.dumps(data)
     p.publish(message)
 
-p.finish_and_quit()
+print("Stopping producer.")
+p.stop()
+print("Producer stopped.")

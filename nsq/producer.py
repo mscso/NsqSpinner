@@ -57,9 +57,3 @@ class Producer(nsq.master.Master):
 
     def mpublish(self, messages):
         self.__ce.elect_connection().mpub(self.__topic, messages)
-
-    def finish_and_quit(self):
-# TODO(dustin): Finish this. Only quit after we've cleared the queue and closed 
-#               the connections (prevent new connections from being 
-#               established, and emitting CLS on the existing connections.
-        gevent.sleep(1)
