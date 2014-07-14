@@ -94,7 +94,9 @@ class DiscoveredNode(Node):
 
             gevent.sleep(timeout_s)
 
-        raise nsq.exceptions.NsqConnectGiveUpError()
+        raise nsq.exceptions.NsqConnectGiveUpError(
+                "Could not connect to the nsqlookupd server: [%s]" % 
+                (self.server_host,))
 
 
 class ServerNode(Node):
@@ -118,7 +120,9 @@ class ServerNode(Node):
             _logger.exception("Could not connect to explicit server: [%s]",
                               self.server_host)
 
-            raise nsq.exceptions.NsqConnectGiveUpError()
+            raise nsq.exceptions.NsqConnectGiveUpError(
+                    "Could not connect to the nsqd server: [%s]" % 
+                    (self.server_host,))
 
         _logger.info("Explicit server-node connected: [%s]", self.server_host)
         return c

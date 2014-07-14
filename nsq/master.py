@@ -4,6 +4,7 @@ import gevent
 import gevent.event
 
 import nsq.config.client
+import nsq.exceptions
 import nsq.node_collection
 import nsq.connection
 import nsq.identify
@@ -61,6 +62,18 @@ class Master(object):
                 if c.is_connected is True:
                     is_connected_to_one = True
                     break
+                elif g.exception == nsq.exceptions.NsqConnectGiveUpError:
+                    raise IOError("One of the servers could not be connected "
+                                  "during startup: [%s]" % (c))
+                elif g.exception is not None:
+                    raise IOError("One of the connection gthreads had an "
+                                  "uncaught exception during startup: [%s] "
+                                  "[%s]" % 
+                                  (g.exception.__class__.__name__, 
+                                   str(g.exception)))
+                elif g.dead is True:
+                    raise SystemError("One of the connection gthreads died "
+                                      "during startup: [%s]" % (c,))
 
             if is_connected_to_one is True:
                 break

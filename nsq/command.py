@@ -34,7 +34,6 @@ class Command(object):
             self.__pack(message))
 
     def mpub(self, topic, messages):
-# TODO(dustin): Test this.
         s = io.BytesIO()
 
         count = 0
