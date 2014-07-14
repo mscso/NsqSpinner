@@ -53,7 +53,7 @@ p = nsq.producer.Producer(
         compression=True)#,
 #        identify=i)
 
-p.run()
+p.start()
 
 for i in range(1000):
     if i % 50 == 0:

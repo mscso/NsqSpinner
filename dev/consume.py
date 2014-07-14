@@ -7,6 +7,8 @@ sys.path.insert(0, dev_path)
 
 import logging
 import json
+import gevent
+import time
 
 import nsq.consumer
 import nsq.node_collection
@@ -15,8 +17,8 @@ import nsq.identify
 
 def _configure_logging():
     logger = logging.getLogger()
-#    logger.setLevel(logging.DEBUG)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
+#    logger.setLevel(logging.INFO)
 
     format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     formatter = logging.Formatter(format)
@@ -67,17 +69,26 @@ i.\
 #               handled, we'll receive one, and then have to wait thirty-
 #               seconds until we receive the rest.
 
-nsq.consumer.consume(
-    _TOPIC, 
-    _CHANNEL, 
-    nc, 
-    500, 
-    message_handler_cls=_MessageHandler, 
-    tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
+# TODO(dustin): This should return an object that we can use to control it.
+c = nsq.consumer.Consumer(
+        _TOPIC, 
+        _CHANNEL, 
+        nc, 
+        500, 
+        message_handler_cls=_MessageHandler, 
+        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
 #    tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
 #                   '/Users/dustin/ssl/ca_test/client.crt.pem'),
-    compression='deflate',
+        compression='deflate',
 #    compression=True,
-    identify=i)
+        identify=i)
 
-c.run()
+c.start()
+
+stop_at = time.time() + 10
+
+while time.time() < stop_at:
+    gevent.sleep(1)
+
+print("Stopping consumer.")
+c.stop()

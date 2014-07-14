@@ -14,14 +14,14 @@ _logger = logging.getLogger(__name__)
 
 class Master(object):
     def __init__(self, message_handler_cls=None):
+        self.__message_handler_cls = message_handler_cls
         self.__nodes_s = set()
         self.__identify = nsq.identify.Identify().set_feature_negotiation()
         self.__connections = []
-        self.__message_handler_cls = message_handler_cls
         self.__message_q = gevent.queue.Queue()
         self.__ready_ev = gevent.event.Event()
-        self.__terminate_ev = gevent.event.Event()
         self.__election = nsq.connection_election.ConnectionElection(self)
+        self.__quit_ev = gevent.event.Event()
 
     def __start_connection(self, node, ccallbacks=None):
         _logger.debug("Creating connection object: [%s]", node)
@@ -30,6 +30,7 @@ class Master(object):
                 node, 
                 self.__identify, 
                 self.__message_q,
+                self.__quit_ev,
                 ccallbacks)
 
         g = gevent.spawn(c.run)
@@ -43,7 +44,10 @@ class Master(object):
         for node in self.__nodes_s:
             self.__start_connection(node, ccallbacks)
 
-        # Wait until at least one server is connected.
+        # Wait until at least one server is connected. Since quitting relies on 
+        # a bunch of loops terminating, attempting to quit [cleanly] 
+        # immediately will still have to wait for the connections to finish 
+        # starting.
 
         _logger.info("Waiting for first connection.")
 
@@ -74,10 +78,10 @@ class Master(object):
 
         # Loop, and maintain all connections.
 
-# TODO(dustin): We should set terminate_ev when we've encountered a critical 
+# TODO(dustin): We should set quit_ev when we've encountered a critical 
 #               error and had to kill all of the greenlets.
 
-        while 1:
+        while self.__quit_ev.is_set() is False:
             # Remove any connections that are dead.
             self.__connections = filter(
                                     lambda (n, c, g): not g.ready(), 
@@ -109,7 +113,42 @@ class Master(object):
                 if not connected_nodes_s:
                     raise EnvironmentError("All servers have gone away.")
 
-            gevent.sleep(nsq.config.client.CONNECTION_AUDIT_WAIT_S)
+
+            interval_s = .5
+            audit_wait_s = float(nsq.config.client.CONNECTION_AUDIT_WAIT_S)
+
+            while audit_wait_s > 0:
+                gevent.sleep(interval_s)
+                audit_wait_s -= interval_s
+
+        connection_greenlets = [g for (n, c, g) in self.__connections]
+
+# TODO(dustin): Put these constants in the config.
+        interval_s = .5
+        graceful_wait_s = 5.0
+        graceful = False
+
+        while graceful_wait_s > 0:
+            if not self.__connections:
+                break
+
+            connected_list = [c.is_connected for (n, c, g) in self.__connections]
+            if any(connected_list) is False:
+                graceful = True
+                break
+
+            # We need to give the greenlets periodic control, in order to finish 
+            # up.
+
+            gevent.sleep(interval_s)
+            graceful_wait_s -= interval_s
+
+        if graceful is False:
+            connected_list = [c for (n, c, g) in self.__connections if c.is_connected]
+            _logger.error("We were told to terminate, but not all "
+                          "connections were stopped: [%s]", connected_list)
+
+        _logger.info("Connection management has stopped.")
 
     def set_servers(self, nodes):
         nodes_s = set(nodes)
@@ -136,11 +175,18 @@ class Master(object):
             raise ValueError("Compression scheme [%s] not valid." % 
                              (specific,))
 
-    def run(self, ccallbacks=None):
+    def start(self, ccallbacks=None):
         """Establish and maintain connections."""
 
-        gevent.spawn(self.__manage_connections, ccallbacks)
+        self.__manage_g = gevent.spawn(self.__manage_connections, ccallbacks)
         self.__ready_ev.wait()
+
+    def stop(self):
+        _logger.debug("Emitting quit signal to consumer greenlets.")
+        self.__quit_ev.set()
+
+        _logger.info("Waiting for consumer workings to stop.")
+        self.__manage_g.join()
 
     @property
     def identify(self):
@@ -157,10 +203,6 @@ class Master(object):
         """
         
         return len(self.__connections)
-
-    @property
-    def terminate_ev(self):
-        return self.__terminate_ev
 
     @property
     def nodes_s(self):

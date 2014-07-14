@@ -3,6 +3,7 @@ import math
 import random
 
 import gevent
+import gevent.event
 
 import nsq.master
 import nsq.node_collection
@@ -152,10 +153,10 @@ class _ConnectionCallbacks(object):
             'rdy_original': rdy,
         }
 
-    def connect(self, connection):
+    def identify(self, connection):
         self.__initialize_connection(connection)
 
-        self.__original_ccallbacks.connect(connection)
+        self.__original_ccallbacks.identify(connection)
 
     def broken(self, connection):
         del self.__connection_context[connection]
@@ -187,80 +188,134 @@ class _ConnectionCallbacks(object):
         return getattr(self.__original_ccallbacks, name)
 
 
-def consume(topic, channel, node_collection, max_in_flight, ccallbacks=None, 
-            rdy=None, tls_ca_bundle_filepath=None, tls_auth_pair=None, 
-            compression=False, identify=None, *args, **kwargs):
-    # The consumer can interact either with producers or lookup servers 
-    # (which render producers).
-    assert issubclass(
-            node_collection.__class__, 
-            (nsq.node_collection.ProducerNodes, 
-             nsq.node_collection.LookupNodes)) is True
+class Consumer(object):
+    def __init__(self, topic, channel, node_collection, max_in_flight, 
+                 ccallbacks=None, rdy=None, tls_ca_bundle_filepath=None, 
+                 tls_auth_pair=None, compression=False, identify=None, 
+                 *args, **kwargs):
+        # The consumer can interact either with producers or lookup servers 
+        # (which render producers).
+        assert issubclass(
+                node_collection.__class__, 
+                (nsq.node_collection.ProducerNodes, 
+                 nsq.node_collection.LookupNodes)) is True
 
-    if ccallbacks is None:
-        ccallbacks = nsq.connection_callbacks.ConnectionCallbacks()
+        # Create connection manager.
 
-    m = nsq.master.Master(*args, **kwargs)
+        m = nsq.master.Master(*args, **kwargs)
 
-    connection_context = {}
-    is_tls = bool(tls_ca_bundle_filepath or tls_auth_pair)
+        # Translate some of our parameters to IDENTIFY parameters.
 
-    if is_tls is True:
-        if tls_ca_bundle_filepath is None:
-            raise ValueError("Please provide a CA bundle.")
+        self.__configure_identify(
+                m, 
+                tls_ca_bundle_filepath, 
+                tls_auth_pair, 
+                compression, 
+                identify)
 
-        nsq.connection.TLS_CA_BUNDLE_FILEPATH = tls_ca_bundle_filepath
-        nsq.connection.TLS_AUTH_PAIR = tls_auth_pair
-        m.identify.set_tls_v1()
+        # Preempt the callbacks that may have been given to us in order to 
+        # keep our consumer in order.
 
-    if compression:
-        if compression is True:
-            compression = None
+        connection_context = {}
 
-        m.set_compression(compression)
+        if ccallbacks is None:
+            ccallbacks = nsq.connection_callbacks.ConnectionCallbacks()
 
-    using_lookup = issubclass(
-                    node_collection.__class__, 
-                    nsq.node_collection.LookupNodes)
+        self.__cc = _ConnectionCallbacks(
+                        ccallbacks, 
+                        topic,
+                        channel,
+                        m, 
+                        connection_context,
+                        max_in_flight,
+                        rdy)
 
-    # Get a list of servers and schedule future checks (if we were given
-    # lookup servers).
+        # Set local attributes.
 
-    def discover(schedule_again):
-        """This runs in its own greenlet, and maintains a list of servers."""
+        self.__topic = topic
+        self.__channel = channel
+        self.__m = m
+        self.__quit_ev = gevent.event.Event()
+        
+        self.__node_collection = node_collection
+        self.__consume_blocker_g = None
 
-        nodes = node_collection.get_servers(topic)
-        m.set_servers(nodes)
+    def __configure_identify(self, m, tls_ca_bundle_filepath=None, 
+                             tls_auth_pair=None, compression=None, 
+                             identify=None):
+        is_tls = bool(tls_ca_bundle_filepath or tls_auth_pair)
 
-        if schedule_again is True:
-            gevent.spawn_later(
-                nsq.config.client.LOOKUP_READ_INTERVAL_S,
-                discover,
-                True)
+        if is_tls is True:
+            if tls_ca_bundle_filepath is None:
+                raise ValueError("Please provide a CA bundle.")
 
-    discover(using_lookup)
+            nsq.connection.TLS_CA_BUNDLE_FILEPATH = tls_ca_bundle_filepath
+            nsq.connection.TLS_AUTH_PAIR = tls_auth_pair
+            m.identify.set_tls_v1()
 
-    # Preempt the callbacks that may have been given to us in order to 
-    # keep our consumer in order.
+        if compression:
+            if compression is True:
+                compression = None
 
-    cc = _ConnectionCallbacks(
-            ccallbacks, 
-            topic,
-            channel,
-            m, 
-            connection_context,
-            max_in_flight,
-            rdy)
+            m.set_compression(compression)
 
-    # If we we're given an identify instance, apply our apply our identify 
-    # defaults them, and then replace our identify values -with- them (so we 
-    # don't lose the values that we set, but can allow them to set everything 
-    # else). 
-    if identify is not None:
-        identify.update(m.identify.parameters)
-        m.identify.update(identify.parameters)
+        # If we we're given an identify instance, apply our apply our identify 
+        # defaults them, and then replace our identify values -with- them (so we 
+        # don't lose the values that we set, but can allow them to set everything 
+        # else). 
 
-    m.run(ccallbacks=cc)
+        if identify is not None:
+            identify.update(m.identify.parameters)
+            m.identify.update(identify.parameters)
 
-    # Block until we're told to terminate.
-    m.terminate_ev.wait()
+    def start(self):
+        using_lookup = issubclass(
+                        self.__node_collection.__class__, 
+                        nsq.node_collection.LookupNodes)
+
+        # Get a list of servers and schedule future checks (if we were given
+        # lookup servers).
+
+        def discover(schedule_again):
+            """This runs in its own greenlet, and maintains a list of servers.
+            """
+
+            nodes = self.__node_collection.get_servers(self.__topic)
+            self.__m.set_servers(nodes)
+
+            if schedule_again is True:
+                gevent.spawn_later(
+                    nsq.config.client.LOOKUP_READ_INTERVAL_S,
+                    discover,
+                    True)
+
+        # Establish a list of servers. Also schedule a next-check if we're 
+        # using lookup servers.
+
+        discover(using_lookup)
+
+        # Start the master connection manager.
+
+        self.__m.start(ccallbacks=self.__cc)
+
+        # Now, spawn a greenlet to wait on the user to set the quit event.
+
+        def consume_blocker():
+            _logger.info("The master routine is now running. Blocking on quit "
+                         "event.")
+
+            self.__quit_ev.wait()
+
+            _logger.info("Consumer is being stopped. Stopping master routine.")
+            self.__m.stop()
+
+        self.__consume_blocker_g = gevent.spawn(consume_blocker)
+
+    def stop(self):
+        _logger.debug("Setting quit event for the consumer.")
+        self.__quit_ev.set()
+
+        _logger.info("Waiting for the consumer to stop.")
+        self.__consume_blocker_g.join()
+
+        _logger.debug("Consumer stop complete.")

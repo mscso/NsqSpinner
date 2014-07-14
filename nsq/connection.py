@@ -43,10 +43,12 @@ class _Buffer(object):
         self.__buffers = []
         self.__logger = _logger.getChild('Buffer')
 
-        if nsq.config.IS_DEBUG is True:
-            self.__logger.setLevel(logging.DEBUG)
-        else:
-            self.__logger.setLevel(logging.INFO)
+        self.__logger.setLevel(logging.INFO)
+#
+#        if nsq.config.IS_DEBUG is True:
+#            self.__logger.setLevel(logging.DEBUG)
+#        else:
+#            self.__logger.setLevel(logging.INFO)
 
     def push(self, bytes):
         self.__logger.debug("Pushing chunk of (%d) bytes into the buffer. "
@@ -106,7 +108,7 @@ class _Buffer(object):
 
 
 class _ManagedConnection(object):
-    def __init__(self, node, connection, identify, message_q, ccallbacks=None):
+    def __init__(self, node, connection, identify, message_q, quit_ev, ccallbacks=None):
         self.__node = node
         self.__c = connection
         self.__identify = identify
@@ -119,7 +121,7 @@ class _ManagedConnection(object):
         # Receives the response to the last command.
         self.__response_success = None
         self.__response_error = None
-        self.__response_event = gevent.event.Event()
+        self.__response_ev = gevent.event.Event()
 
         # The queue for outgoing commands.
         self.__outgoing_q = gevent.queue.Queue()
@@ -129,6 +131,8 @@ class _ManagedConnection(object):
         self.__write_filters = []
 
         self.__do_buffered_reads = False
+
+        self.__quit_ev = quit_ev
 
     def __str__(self):
         return ('<CONNECTION %s>' % (self.__c.getpeername(),))
@@ -244,6 +248,9 @@ class _ManagedConnection(object):
             # in the buffers when we enable SSL or compression.
             self.__do_buffered_reads = True
 
+            if self.__ccallbacks is not None:
+                self.__ccallbacks.identify(self)
+
         # Else, store the response. Whoever queued the last command can wait 
         # for the next response to be set. Each connection works in a serial
         # fashion.
@@ -252,7 +259,7 @@ class _ManagedConnection(object):
                           len(data), self.__last_command)
 
             self.__response_success = data
-            self.__response_event.set()
+            self.__response_ev.set()
 
     def __process_frame_error(self, data):
         if data in nsq.config.protocol.PASSIVE_ERROR_LIST:
@@ -325,10 +332,10 @@ class _ManagedConnection(object):
             _logger.debug("Waiting for response to [%s].", 
                           self.__distill_command_name(command))
 
-            self.__response_event.wait()
+            self.__response_ev.wait()
 
             (response, self.__response_success) = (self.__response_success, None)
-            self.__response_event.clear()
+            self.__response_ev.clear()
 
             return response
         else:
@@ -428,14 +435,16 @@ class _ManagedConnection(object):
             self.__is_connected = False
 
             if self.__ccallbacks is not None:
-                gevent.spawn(self.__ccallbacks.broken, self)
+                self.__ccallbacks.broken(self)
 
         gevent.getcurrent().link(terminate_cb)
 
         if self.__ccallbacks is not None:
-            gevent.spawn(self.__ccallbacks.connect, self)
+            self.__ccallbacks.connect(self)
 
-        while 1:
+        while self.__quit_ev.is_set() is False:
+            hit = False
+
 # TODO(dustin): Consider breaking the loop if we haven't yet retried to 
 #               reconnect a couple of times. A connection will automatically be 
 #               reattempted.
@@ -446,6 +455,7 @@ class _ManagedConnection(object):
                         timeout=0)#nsq.config.protocol.READ_SELECT_TIMEOUT_S)
 
             if status[0]:
+                hit = True
                 self.__read_frame()
 
             try:
@@ -457,10 +467,14 @@ class _ManagedConnection(object):
                               "[%s]", self.__outgoing_q.qsize(), 
                               self.__distill_command_name(command))
 
+                hit = True
                 self.__send_command_primitive(command, parts)
 
+            if hit is False:
 # TODO(dustin): Move this to config.
-            gevent.sleep(.1)
+                gevent.sleep(.1)
+
+        _logger.debug("Connection interaction has stopped: %s", self)
 
     @property
     def command(self):
@@ -472,12 +486,13 @@ class _ManagedConnection(object):
 
 
 class Connection(object):
-    def __init__(self, node, identify, message_q, ccallbacks=None):
+    def __init__(self, node, identify, message_q, quit_ev, ccallbacks=None):
         self.__node = node
         self.__identify = identify
         self.__message_q = message_q
         self.__is_connected = False
         self.__mc = None
+        self.__quit_ev = quit_ev
         self.__ccallbacks = ccallbacks
 
     def __connect(self):
@@ -495,12 +510,15 @@ class Connection(object):
                         c, 
                         self.__identify,
                         self.__message_q,
+                        self.__quit_ev,
                         self.__ccallbacks)
 
         try:
             self.__mc.interact()
         except nsq.exceptions.NsqConnectGiveUpError:
             raise
+        finally:
+            self.__is_connected = False
 
     def run(self):
         """Connect the server, and maintain the connection. This shall not 
@@ -508,8 +526,10 @@ class Connection(object):
         available.
         """
 
-        while 1:
+        while self.__quit_ev.is_set() is False:
             self.__connect()
+
+        _logger.info("Connection re-connect loop has terminated: %s", self)
 
     @property
     def is_connected(self):
