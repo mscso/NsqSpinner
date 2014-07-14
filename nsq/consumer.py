@@ -193,11 +193,11 @@ class Consumer(object):
                  ccallbacks=None, rdy=None, tls_ca_bundle_filepath=None, 
                  tls_auth_pair=None, compression=False, identify=None, 
                  *args, **kwargs):
-        # The consumer can interact either with producers or lookup servers 
-        # (which render producers).
+        # A consumer can interact either with nsqd or nsqlookupd servers 
+        # (which render nsqd servers).
         assert issubclass(
                 node_collection.__class__, 
-                (nsq.node_collection.ProducerNodes, 
+                (nsq.node_collection.ServerNodes, 
                  nsq.node_collection.LookupNodes)) is True
 
         # Create connection manager.

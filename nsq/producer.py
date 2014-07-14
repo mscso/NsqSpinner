@@ -13,11 +13,10 @@ class Producer(nsq.master.Master):
     def __init__(self, topic, node_collection, tls_ca_bundle_filepath=None, 
                  tls_auth_pair=None, compression=False, identify=None, 
                  *args, **kwargs):
-        # The consumer can interact either with producers or lookup servers 
-        # (which render producers).
+        # A producer can interact only with nsqd servers.
         assert issubclass(
                 node_collection.__class__, 
-                nsq.node_collection.ConsumerNodes) is True
+                nsq.node_collection.ServerNodes) is True
 
         super(Producer, self).__init__(*args, **kwargs)
 

@@ -36,7 +36,7 @@ server_nodes = [
 
 _logger = logging.getLogger(__name__)
 
-nc = nsq.node_collection.ConsumerNodes(server_nodes)
+nc = nsq.node_collection.ServerNodes(server_nodes)
 
 
 #i = nsq.identify.Identify()
@@ -47,9 +47,9 @@ nc = nsq.node_collection.ConsumerNodes(server_nodes)
 p = nsq.producer.Producer(
         _TOPIC, 
         nc, 
-        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
-        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
-                       '/Users/dustin/ssl/ca_test/client.crt.pem'),
+#        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
+#        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
+#                       '/Users/dustin/ssl/ca_test/client.crt.pem'),
         compression=True)#,
 #        identify=i)
 
@@ -57,12 +57,12 @@ p.start()
 
 for i in range(0, 100000, 10):
     if i % 50 == 0:
-        print(i)
+        _logger.info("(%d) messages published.", i)
 
     data = { 'type': 'dummy', 'data': random.random(), 'index': i }
     message = json.dumps(data)
     p.mpublish((message,) * 10)
 
-print("Stopping producer.")
+_logger.info("Stopping producer.")
 p.stop()
-print("Producer stopped.")
+_logger.info("Producer stopped.")

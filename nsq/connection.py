@@ -552,7 +552,7 @@ class Connection(object):
         while self.__nice_quit_ev.is_set() is False:
             self.__connect()
 
-        _logger.info("Connection re-connect loop has terminated: %s", self)
+        _logger.info("Connection re-connect loop has terminated: %s", self.__mc)
 
     @property
     def is_connected(self):

@@ -34,15 +34,19 @@ _configure_logging()
 _TOPIC = 'test_topic'
 _CHANNEL = 'test_channel'
 
-# TODO(dustin): Test using direct TCP endpoints (not using lookupd)
-
-lookup_node_prefixes = [
-    'http://127.0.0.1:4161'
-]
-
 _logger = logging.getLogger(__name__)
 
+lookup_node_prefixes = [
+    'http://127.0.0.1:4161',
+]
+
 nc = nsq.node_collection.LookupNodes(lookup_node_prefixes)
+
+#server_nodes = [
+#    ('127.0.0.1', 4150),
+#]
+#
+#nc = nsq.node_collection.ServerNodes(server_nodes)
 
 
 class _MessageHandler(nsq.message_handler.MessageHandler):
@@ -52,7 +56,7 @@ class _MessageHandler(nsq.message_handler.MessageHandler):
 
     def message_received(self, connection, message):
         super(_MessageHandler, self).message_received(connection, message)
-# TODO(dustin): Currently, we're not sending FIN... So why are our jobs being marked successful (or is it)?
+# TODO(dustin): Currently, we're not sending FIN... So why are our jobs being marked successful (or are they)?
         try:
             self.__decoded = json.loads(message.body)
         except:
@@ -62,27 +66,27 @@ class _MessageHandler(nsq.message_handler.MessageHandler):
 #            self.ce.elect_connection().fin(message.message_id)
 
     def classify_message(self, message):
-# TODO(dustin): We need a way to handle a classification failure.
+# TODO(dustin): The consumer need a way to handle a classification failure 
+#               (read: tell the consumer that it's unclassifiable, and then 
+#               forward it to such a handler on the message-handler).
         return (self.__decoded['type'], self.__decoded)
 
     def handle_dummy(self, connection, message, context):
         self.__processed += 1
 
         if self.__processed % 1000 == 0:
-            print("Processed (%d) messages." % (self.__processed,))
-
-#        print("Handling: %s" % (self.__decoded,))
+            _logger.info("Processed (%d) messages.", self.__processed)
 
     def default_message_handler(self, message_class, connection, message, 
                                 classify_context):
-        print("Squashing unhandled message: [%s] [%s]" % 
-              (message_class, message))
+        _logger.warning("Squashing unhandled message: [%s] [%s]",
+                        message_class, message)
 
 
-i = nsq.identify.Identify()
-i.\
-    heartbeat_interval(10 * 1000)
-#    client_id('11111').\
+#i = nsq.identify.Identify()
+#i.\
+#    heartbeat_interval(10 * 1000)
+##    client_id('11111').\
 
 # TODO(dustin): If we connect while there are already jobs waiting to be 
 #               handled, we'll receive one, and then have to wait thirty-
@@ -99,8 +103,8 @@ c = nsq.consumer.Consumer(
 #        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
 #                       '/Users/dustin/ssl/ca_test/client.crt.pem'),
 #        compression='deflate',
-#        compression=True,
-        identify=i)
+        compression=True)#,
+#        identify=i)
 
 c.start()
 
@@ -114,5 +118,5 @@ while c.is_alive:
     gevent.sleep(1)
 
 if c.is_alive:
-    print("Stopping consumer.")
+    _logger.info("Stopping consumer.")
     c.stop()

@@ -7,24 +7,12 @@ class _Nodes(object):
         raise NotImplementedError()
 
 
-class _ServerNodes(_Nodes):
+class ServerNodes(_Nodes):
     def __init__(self, server_hosts):
         self.__server_hosts = server_hosts
 
     def get_servers(self, topic):
         return (nsq.node.ServerNode(sh) for sh in self.__server_hosts)
-
-
-class ProducerNodes(_ServerNodes):
-    """Used by a consumer to specify a producer NSQD collection."""
-
-    pass
-
-
-class ConsumerNodes(_ServerNodes):
-    """Used by a producer to specify a consumer NSQD collection."""
-
-    pass
 
 
 class LookupNodes(_Nodes):
