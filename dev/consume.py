@@ -56,19 +56,15 @@ class _MessageHandler(nsq.message_handler.MessageHandler):
 
     def message_received(self, connection, message):
         super(_MessageHandler, self).message_received(connection, message)
-# TODO(dustin): Currently, we're not sending FIN... So why are our jobs being marked successful (or are they)?
+
         try:
             self.__decoded = json.loads(message.body)
         except:
             _logger.info("Couldn't decode message. Finished: [%s]", 
                          message.body)
             return
-#            self.ce.elect_connection().fin(message.message_id)
 
     def classify_message(self, message):
-# TODO(dustin): The consumer need a way to handle a classification failure 
-#               (read: tell the consumer that it's unclassifiable, and then 
-#               forward it to such a handler on the message-handler).
         return (self.__decoded['type'], self.__decoded)
 
     def handle_dummy(self, connection, message, context):

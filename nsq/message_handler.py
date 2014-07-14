@@ -41,8 +41,6 @@ class MessageHandler(object):
         _logger.debug("Message-handler waiting for messages.")
 
         def finish(message):
-# TODO(dustin): We'll use election whenever we need to initiate a connection-
-#               agnostic command.
             self.__ce.elect_connection().fin(message.message_id)
 
         while 1:
@@ -53,17 +51,21 @@ class MessageHandler(object):
             try:
                 (message_class, classify_context) = \
                     self.classify_message(message)
-            except:
+            except Exception as e:
                 if nsq.config.handle.FINISH_IF_CLASSIFY_ERROR is True:
                     _logger.exception("Could not classify message [%s]. We're "
                                       "configured to just mark it as "
-                                      "finished.", message.message_id)
+                                      "finished: [%s] [%s]", 
+                                      message.message_id, e.__class__.__name__, 
+                                      str(e))
 
                     finish(message)
                 else:
                     _logger.exception("Could not classify message [%s]. We're "
                                       "not configured to 'finish' it, so "
-                                      "we'll ignore it.", message.message_id)
+                                      "we'll ignore it: [%s] [%s]", 
+                                      message.message_id, e.__class__.__name__, 
+                                      str(e))
 
                 continue
 
