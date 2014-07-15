@@ -22,6 +22,8 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         super(ConsumerCallbacks, self).__init__(*args, **kwargs)
 
         self.__consumer = None
+        self.__logger_rdy = _logger.getChild('rdy')
+#        self.__logger_rdy.setLevel(logging.DEBUG)
 
     def set_consumer(self, consumer):
         self.__consumer = consumer
@@ -44,9 +46,9 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         if self.__consumer.original_rdy is None:
             node_count = len(self.__consumer.master.nodes_s)
 
-            _logger.debug("Calculating RDY: max_in_flight=(%d) "
-                          "node_count=(%d)", 
-                          self.__consumer.max_in_flight, node_count)
+            self.__logger_rdy.debug("Calculating RDY: max_in_flight=(%d) "
+                                    "node_count=(%d)", 
+                                    self.__consumer.max_in_flight, node_count)
 
             if self.__consumer.max_in_flight >= node_count:
                 # Calculate the RDY based on the max_in_flight and total number 
@@ -56,10 +58,11 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
                                         float(self.__consumer.max_in_flight) /
                                         float(node_count)))
 
-                _logger.debug("Assigning RDY based on max_in_flight (%d) and "
-                              "node count (%d) (optimal): (%d)", 
-                              self.__consumer.max_in_flight, node_count, 
-                              rdy_this)
+                self.__logger_rdy.debug("Assigning RDY based on max_in_flight "
+                                        "(%d) and node count (%d) (optimal): "
+                                        "(%d)", 
+                                        self.__consumer.max_in_flight, 
+                                        node_count, rdy_this)
             else:
                 # We have two possible scenarios:
                 # (1) The client is starting up, and the total RDY count is 
@@ -74,7 +77,8 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
                 # Look for existing connections that have a (0) RDY (which 
                 # would've only been set to (0) intentionally).
 
-                _logger.debug("(max_in_flight > nodes). Doing RDY election.")
+                self.__logger_rdy.debug("(max_in_flight > nodes). Doing RDY "
+                                        "election.")
 
                 sleeping_connections = [
                     c \
@@ -82,19 +86,19 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
                     in self.__consumer.connection_context.items() \
                     if info['rdy_count'] == 0]
 
-                _logger.debug("Current sleeping_connections: %s", 
-                              sleeping_connections)
+                self.__logger_rdy.debug("Current sleeping_connections: %s", 
+                                        sleeping_connections)
 
                 if sleeping_connections:
                     elected_connection = random.choice(sleeping_connections)
-                    _logger.debug("Sending RDY of (1) on: [%s]", 
-                                  elected_connection)
+                    self.__logger_rdy.debug("Sending RDY of (1) on: [%s]", 
+                                            elected_connection)
 
                     command_elected = nsq.command.Command(elected_connection)
                     command_elected.rdy(1)
                 else:
-                    _logger.debug("No sleeping connections. We got the short "
-                                  "stick: [%s]", connection)
+                    self.__logger.debug("No sleeping connections. We got the "
+                                        "short stick: [%s]", connection)
 
                 rdy_this = 0
         else:
@@ -104,10 +108,11 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
                             self.__consumer.master.connection_count, 
                             self.__consumer.master)
 
-                _logger.debug("Using RDY from callback: (%d)", rdy_this)
+                self.__logger_rdy.debug("Using RDY from callback: (%d)", 
+                                        rdy_this)
             except TypeError:
                 rdy_this = self.__consumer.original_rdy
-                _logger.debug("Using static RDY: (%d)", rdy_this)
+                self.__logger_rdy.debug("Using static RDY: (%d)", rdy_this)
 
         # Make sure that the aggregate set of RDY counts doesn't exceed the 
         # max. This constrains the previous value, above.
@@ -126,15 +131,16 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         max_rdy_count = server_features['max_rdy_count']
         rdy_this = min(max_rdy_count, rdy_this)
 
-        _logger.debug("Final RDY (max_in_flight=(%d) max_rdy_count=(%d)): "
-                      "(%d)", 
-                      self.__consumer.max_in_flight, max_rdy_count, rdy_this)
+        self.__logger_rdy.debug("Final RDY (max_in_flight=(%d) "
+                                "max_rdy_count=(%d)): (%d)", 
+                                self.__consumer.max_in_flight, max_rdy_count, 
+                                rdy_this)
 
         if rdy_this > 0:
             command.rdy(rdy_this)
         else:
-            _logger.info("This connection will go to sleep (not enough RDY to "
-                         "go around).")
+            self.__logger_rdy.info("This connection will go to sleep (not "
+                                   "enough RDY to go around).")
 
         return rdy_this
 
