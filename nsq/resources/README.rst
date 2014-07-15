@@ -206,21 +206,6 @@ The *consumer* has one additional callback:
 
 
 ---------
-Benchmark
----------
-
-Though there will be better (and more distributed) benchmarks in the future, 
-this is what I've already, hastily, tested with a sample-size of one-million 
-messages:
-
-=============================  ===============  ===============
-Architecture                   Time to Produce  Time to Consume
-=============================  ===============  ===============
-64-Bit, 2.4 GHz, Four-Core I7  3:38             3:29
-=============================  ===============  ===============
-
-
----------
 Footnotes
 ---------
 
