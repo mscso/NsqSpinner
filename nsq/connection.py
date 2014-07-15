@@ -14,6 +14,9 @@ import gevent.queue
 import gevent.event
 import gevent.ssl
 
+import gevent.monkey
+gevent.monkey.patch_all()
+
 import nsq.config
 import nsq.config.protocol
 import nsq.config.client
@@ -86,14 +89,14 @@ class _Buffer(object):
 
 
 class _ManagedConnection(object):
-    def __init__(self, node, connection, identify, message_q, nice_quit_ev, 
-                 ccallbacks=None, ignore_quit=False):
+    def __init__(self, node, connection, identify, message_handler, 
+                 nice_quit_ev, ccallbacks=None, ignore_quit=False):
         self.__node = node
         self.__c = connection
         self.__c_peer = connection.getpeername()
 
         self.__identify = identify
-        self.__message_q = message_q
+        self.__message_handler = message_handler
         self.__ccallbacks = ccallbacks
 
         self.__command = nsq.command.Command(self)
@@ -273,7 +276,7 @@ class _ManagedConnection(object):
         _logger.debug("Received MESSAGE frame: [%s] (%d bytes)", 
                       message_id, len(body))
 
-        self.__message_q.put((self, m))
+        self.__message_handler.handle(self, m)
 
     def __primitive_send(self, data):
         for f in self.__write_filters:
@@ -530,11 +533,11 @@ class _ManagedConnection(object):
 
 
 class Connection(object):
-    def __init__(self, node, identify, message_q, nice_quit_ev, 
+    def __init__(self, node, identify, message_handler, nice_quit_ev, 
                  ccallbacks=None, ignore_quit=False):
         self.__node = node
         self.__identify = identify
-        self.__message_q = message_q
+        self.__message_handler = message_handler
         self.__is_connected = False
         self.__mc = None
         self.__nice_quit_ev = nice_quit_ev
@@ -558,7 +561,7 @@ class Connection(object):
                         self.__node,
                         c, 
                         self.__identify,
-                        self.__message_q,
+                        self.__message_handler,
                         self.__nice_quit_ev,
                         self.__ccallbacks,
                         ignore_quit=self.__ignore_quit)

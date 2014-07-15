@@ -25,11 +25,11 @@ class Master(object):
         self.__nodes_s = set()
         self.__identify = nsq.identify.Identify().set_feature_negotiation()
         self.__connections = []
-        self.__message_q = gevent.queue.Queue()
         self.__ready_ev = gevent.event.Event()
         self.__election = nsq.connection_election.ConnectionElection(self)
         self.__quit_ev = gevent.event.Event()
         self.__is_alive = False
+        self.__message_handler = None
 
     def __start_connection(self, node, ccallbacks=None):
         """Start a new connection, and manage it from a new greenlet."""
@@ -39,7 +39,7 @@ class Master(object):
         c = nsq.connection.Connection(
                 node, 
                 self.__identify, 
-                self.__message_q,
+                self.__message_handler,
                 self.__quit_ev,
                 ccallbacks,
                 ignore_quit=self.__connection_ignore_quit)
@@ -174,6 +174,13 @@ class Master(object):
 
         _logger.info("Running client.")
 
+        # Create message-handler.
+
+        if self.__message_handler_cls is not None:
+            self.__message_handler = self.__message_handler_cls(
+                                        self.__election, 
+                                        ccallbacks)
+
         # Spawn connections to all of the servers.
 
         for node in self.__nodes_s:
@@ -185,15 +192,6 @@ class Master(object):
         # Indicate that the client is okay to pass control back to the caller.
         self.__is_alive = True
         self.__ready_ev.set()
-
-        # Spawn the message handler.
-
-        if self.__message_handler_cls is not None:
-            message_handler = self.__message_handler_cls(self.__election, ccallbacks)
-
-            gevent.spawn(
-                message_handler.run, 
-                self.__message_q)
 
         # Loop, and maintain all connections. This exists when the quit event 
         # is set.

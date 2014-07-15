@@ -102,17 +102,36 @@ c = nsq.consumer.Consumer(
 #        compression=True)#,
 #        identify=i)
 
-c.start()
+def run_profile():
+    import contextlib
 
-#n = 20
-#while n > 0:
+    @contextlib.contextmanager
+    def profile():
+        import cProfile
+        import pstats
+        pr = cProfile.Profile()
+        pr.enable()
+        yield
+        pr.disable()
+        ps = pstats.Stats(pr).sort_stats('tottime')
+        ps.print_stats()
+
+    with profile():
+        c.start()
+    
+        n = 20
+        while n > 0:
+            gevent.sleep(1)
+    
+            n -= 1
+
+#c.start()
+#
+#while c.is_alive:
 #    gevent.sleep(1)
 #
-#    n -= 1
+#if c.is_alive:
+#    _logger.info("Stopping consumer.")
+#    c.stop()
 
-while c.is_alive:
-    gevent.sleep(1)
-
-if c.is_alive:
-    _logger.info("Stopping consumer.")
-    c.stop()
+run_profile()

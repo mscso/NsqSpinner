@@ -37,56 +37,51 @@ class MessageHandler(object):
         self.__ce = connection_election
         self.__ccallbacks = ccallbacks
 
-    def run(self, message_q):
-        _logger.debug("Message-handler waiting for messages.")
-
+    def handle(self, connection, message):
         def finish(message):
             self.__ce.elect_connection().fin(message.message_id)
 
-        while 1:
-            (connection, message) = message_q.get()
+        self.message_received(connection, message)
 
-            self.message_received(connection, message)
+        try:
+            (message_class, classify_context) = \
+                self.classify_message(message)
+        except Exception as e:
+            if nsq.config.handle.FINISH_IF_CLASSIFY_ERROR is True:
+                _logger.exception("Could not classify message [%s]. We're "
+                                  "configured to just mark it as "
+                                  "finished: [%s] [%s]", 
+                                  message.message_id, e.__class__.__name__, 
+                                  str(e))
 
-            try:
-                (message_class, classify_context) = \
-                    self.classify_message(message)
-            except Exception as e:
-                if nsq.config.handle.FINISH_IF_CLASSIFY_ERROR is True:
-                    _logger.exception("Could not classify message [%s]. We're "
-                                      "configured to just mark it as "
-                                      "finished: [%s] [%s]", 
-                                      message.message_id, e.__class__.__name__, 
-                                      str(e))
-
-                    finish(message)
-                else:
-                    _logger.exception("Could not classify message [%s]. We're "
-                                      "not configured to 'finish' it, so "
-                                      "we'll ignore it: [%s] [%s]", 
-                                      message.message_id, e.__class__.__name__, 
-                                      str(e))
-
-                continue
-
-            _logger.debug("Message classified: [%s]", message_class)
-
-            handle = getattr(self, 'handle_' + message_class, None)
-
-            if handle is None:
-                handle = functools.partial(
-                            self.default_message_handler, 
-                            message_class)
-
-            try:
-                handle(connection, message, classify_context)
-            except MessageManuallyFinishedException:
-                pass
-            else:
                 finish(message)
+            else:
+                _logger.exception("Could not classify message [%s]. We're "
+                                  "not configured to 'finish' it, so "
+                                  "we'll ignore it: [%s] [%s]", 
+                                  message.message_id, e.__class__.__name__, 
+                                  str(e))
 
-            if nsq.config.handle.AUTO_FINISH_MESSAGES is True:
-                self.message_handled(message)
+                return
+
+        _logger.debug("Message classified: [%s]", message_class)
+
+        handle = getattr(self, 'handle_' + message_class, None)
+
+        if handle is None:
+            handle = functools.partial(
+                        self.default_message_handler, 
+                        message_class)
+
+        try:
+            handle(connection, message, classify_context)
+        except MessageManuallyFinishedException:
+            pass
+        else:
+            finish(message)
+
+        if nsq.config.handle.AUTO_FINISH_MESSAGES is True:
+            self.message_handled(message)
 
     def default_message_handler(self, message_class, connection, message, 
                                 classify_context):
