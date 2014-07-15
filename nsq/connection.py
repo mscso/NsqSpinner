@@ -148,6 +148,8 @@ class _ManagedConnection(object):
         self.__send_thread_ev = gevent.event.Event()
         self.__receive_thread_ev = gevent.event.Event()
 
+        self.__frame_header_cache = None
+
     def __str__(self):
         return ('<CONNECTION %s>' % (self.__c_peer,))
 
@@ -443,28 +445,20 @@ class _ManagedConnection(object):
         header, wait-out the rest of the frame.
         """
 
-        _logger.debug("Reading frame header.")
-        (length,) = struct.unpack('!I', self.__read(4))
+        if self.__frame_header_cache is None:
+            _logger.debug("Reading frame header.")
+            (length, frame_type) = struct.unpack('!II', self.__read(8))
+            self.__frame_header_cache = (length, frame_type)
+        else:
+            (length, frame_type) = self.__frame_header_cache
 
-        while 1:
-            _logger.debug("Reading (%d) more bytes", length)
-            try:
-                (frame_type,) = struct.unpack('!I', self.__read(4))
-            except errno.EAGAIN:
-                gevent.sleep(nsq.config.client.READ_THROTTLE_S)
-                continue
+        try:
+            data = self.__read(length - 4)
+        except errno.EAGAIN:
+            self.__frame_header_cache = (length, frame_type)
+            raise
 
-            break
-
-        while 1:
-            try:
-                data = self.__read(length - 4)
-            except errno.EAGAIN:
-                gevent.sleep(nsq.config.client.READ_THROTTLE_S)
-                continue
-
-            break
-
+        self.__frame_header_cache = None
         self.__process_message(frame_type, data)
 
     def interact(self):
