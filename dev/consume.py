@@ -57,15 +57,16 @@ class _MessageHandler(nsq.message_handler.MessageHandler):
     def message_received(self, connection, message):
         super(_MessageHandler, self).message_received(connection, message)
 
-        try:
-            self.__decoded = json.loads(message.body)
-        except:
-            _logger.info("Couldn't decode message. Finished: [%s]", 
-                         message.body)
-            return
+#        try:
+#            self.__decoded = json.loads(message.body)
+#        except:
+#            _logger.info("Couldn't decode message. Finished: [%s]", 
+#                         message.body)
+#            return
 
     def classify_message(self, message):
-        return (self.__decoded['type'], self.__decoded)
+#        return (self.__decoded['type'], self.__decoded)
+        return ('dummy', None)
 
     def handle_dummy(self, connection, message, context):
         self.__processed += 1
@@ -92,13 +93,13 @@ c = nsq.consumer.Consumer(
         _TOPIC, 
         _CHANNEL, 
         nc, 
-        500, 
-        message_handler_cls=_MessageHandler, 
+        2500, 
+        message_handler_cls=_MessageHandler)#, 
 #        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
 #        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
 #                       '/Users/dustin/ssl/ca_test/client.crt.pem'),
 #        compression='deflate',
-        compression=True)#,
+#        compression=True)#,
 #        identify=i)
 
 c.start()

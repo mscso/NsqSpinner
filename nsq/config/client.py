@@ -22,9 +22,11 @@ MAXIMUM_CONNECT_ATTEMPT_PERIOD_S = 60 * 5
 # The blocksize of data to read off the wire.
 BUFFER_READ_CHUNK_SIZE_B = 8192
 
-# The interval to wait if there isn't any data to read and no commands to 
-# write.
-READWRITE_THROTTLE_S = .1
+# The interval to wait if there isn't any data to read.
+READ_THROTTLE_S = .001
+
+# The interval to wait if there aren't any commands to write.
+WRITE_THROTTLE_S = .001
 
 # The amount of time to wait between checks that all of the servers are 
 # connected, on startup.

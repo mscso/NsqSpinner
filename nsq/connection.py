@@ -6,6 +6,7 @@ import pprint
 import datetime
 import io
 import functools
+import errno
 
 import gevent
 import gevent.select
@@ -143,6 +144,9 @@ class _ManagedConnection(object):
         # This event is triggered by us if the CLS command goes out and gets 
         # responded to.
         self.__force_quit_ev = gevent.event.Event()
+
+        self.__send_thread_ev = gevent.event.Event()
+        self.__receive_thread_ev = gevent.event.Event()
 
     def __str__(self):
         return ('<CONNECTION %s>' % (self.__c_peer,))
@@ -384,7 +388,10 @@ class _ManagedConnection(object):
 
     def __read_buffered(self, length):
         while self.__buffer.size < length:
+
+            # May raise EAGAIN. Caught above.
             data = self.__c.recv(nsq.config.client.BUFFER_READ_CHUNK_SIZE_B)
+
             data = self.__filter_incoming_data(data)
             
             if data:
@@ -397,7 +404,16 @@ class _ManagedConnection(object):
         remaining_b = length
 
         while remaining_b > 0:
-            data = self.__c.recv(remaining_b)
+            try:
+                data = self.__c.recv(remaining_b)
+            except errno.EAGAIN:
+                # If we already have data, loop until we get it all. Else, 
+                # raise EAGAIN.
+                if not parts:
+                    raise
+
+                data = ''
+
             if not data:
                 continue
 
@@ -422,13 +438,32 @@ class _ManagedConnection(object):
             return self.__read_exact(length)
 
     def __read_frame(self):
+        """*Attempt* to read a frame. If we get an EAGAIN on the frame header, 
+        it'll raise to our caller. If we get it *after* we already got the 
+        header, wait-out the rest of the frame.
+        """
+
         _logger.debug("Reading frame header.")
         (length,) = struct.unpack('!I', self.__read(4))
 
-        _logger.debug("Reading (%d) more bytes", length)
-        (frame_type,) = struct.unpack('!I', self.__read(4))
+        while 1:
+            _logger.debug("Reading (%d) more bytes", length)
+            try:
+                (frame_type,) = struct.unpack('!I', self.__read(4))
+            except errno.EAGAIN:
+                gevent.sleep(nsq.config.client.READ_THROTTLE_S)
+                continue
 
-        data = self.__read(length - 4)
+            break
+
+        while 1:
+            try:
+                data = self.__read(length - 4)
+            except errno.EAGAIN:
+                gevent.sleep(nsq.config.client.READ_THROTTLE_S)
+                continue
+
+            break
 
         self.__process_message(frame_type, data)
 
@@ -452,45 +487,64 @@ class _ManagedConnection(object):
         if self.__ccallbacks is not None:
             self.__ccallbacks.connect(self)
 
-        # If we're ignoring the quit, the connections will have to be closed 
-        # by the server.
-        while (self.__ignore_quit is True or \
-               self.__nice_quit_ev.is_set() is False) and \
-              self.__force_quit_ev.is_set() is False:
-            hit = False
+        gevent.spawn(self.__sender)
+        gevent.spawn(self.__receiver)
 
-# TODO(dustin): Consider breaking the loop if we haven't yet retried to 
-#               reconnect a couple of times. A connection will automatically be 
-#               reattempted.
-            status = gevent.select.select(
-                        [self.__c], 
-                        [], 
-                        [], 
-                        timeout=0)
+        self.__send_thread_ev.wait()
 
-            if status[0]:
-                hit = True
-                self.__read_frame()
-
-            try:
-                (command, parts) = self.__outgoing_q.get(block=False)
-            except gevent.queue.Empty:
-                pass
-            else:
-                _logger.debug("Dequeued outgoing command ((%d) remaining): "
-                              "[%s]", self.__outgoing_q.qsize(), 
-                              self.__distill_command_name(command))
-
-                hit = True
-                self.__send_command_primitive(command, parts)
-
-            if hit is False:
-                gevent.sleep(nsq.config.client.READWRITE_THROTTLE_S)
+        _logger.debug("Sender has terminated. Waiting for receiver to "
+                      "terminate.")
+        self.__receive_thread_ev.wait()
 
         _logger.debug("Connection interaction has stopped (IGNORE_QUIT=[%s] "
                       "NICE_QUIT_EV=[%s] FORCE_QUIT_EV=[%s]): %s", 
                       self.__ignore_quit, self.__nice_quit_ev.is_set(), 
                       self.__force_quit_ev.is_set(), self)
+
+    def __sender(self):
+        """Send-loop."""
+
+        # If we're ignoring the quit, the connections will have to be closed 
+        # by the server.
+        while (self.__ignore_quit is True or \
+               self.__nice_quit_ev.is_set() is False) and \
+              self.__force_quit_ev.is_set() is False:
+
+# TODO(dustin): Consider breaking the loop if we haven't yet retried to 
+#               reconnect a couple of times. A connection will automatically be 
+#               reattempted.
+
+            try:
+                (command, parts) = self.__outgoing_q.get(block=False)
+            except gevent.queue.Empty:
+                gevent.sleep(nsq.config.client.WRITE_THROTTLE_S)
+            else:
+                _logger.debug("Dequeued outgoing command ((%d) remaining): "
+                              "[%s]", self.__outgoing_q.qsize(), 
+                              self.__distill_command_name(command))
+
+                self.__send_command_primitive(command, parts)
+
+        self.__send_thread_ev.set()
+
+    def __receiver(self):
+        """Receive-loop."""
+
+        # If we're ignoring the quit, the connections will have to be closed 
+        # by the server.
+        while (self.__ignore_quit is True or \
+               self.__nice_quit_ev.is_set() is False) and \
+              self.__force_quit_ev.is_set() is False:
+# TODO(dustin): Consider breaking the loop if we haven't yet retried to 
+#               reconnect a couple of times. A connection will automatically be 
+#               reattempted.
+
+            try:
+                self.__read_frame()
+            except errno.EAGAIN:
+                gevent.sleep(nsq.config.client.READ_THROTTLE_S)
+
+        self.__receive_thread_ev.set()
 
     @property
     def command(self):
@@ -521,6 +575,9 @@ class Connection(object):
         _logger.debug("Connecting node: [%s]", self.__node)
 
         c = self.__node.connect(self.__nice_quit_ev)
+        
+# TODO(dustin): Ensure that ssl_wrap doesn't change this.
+        c.setblocking(True)
 
         _logger.debug("Node connected and being handed-off to be managed: "
                       "[%s]", self.__node)

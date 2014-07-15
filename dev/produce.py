@@ -46,22 +46,25 @@ nc = nsq.node_collection.ServerNodes(server_nodes)
 
 p = nsq.producer.Producer(
         _TOPIC, 
-        nc, 
+        nc)#, 
 #        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
 #        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
 #                       '/Users/dustin/ssl/ca_test/client.crt.pem'),
-        compression=True)#,
+#        compression=True)#,
 #        identify=i)
 
 p.start()
 
-for i in range(0, 1000000, 100):
-    if i % 50 == 0:
+for i in range(0, 1000000, 1000):
+    if i % 1000 == 0:
         _logger.info("(%d) messages published.", i)
 
-    data = { 'type': 'dummy', 'data': random.random(), 'index': i }
-    message = json.dumps(data)
-    p.mpublish((message,) * 100)
+#    data = { 'type': 'dummy', 'data': random.random(), 'index': i }
+#    data = { 'type': 'dummy' }
+#    message = json.dumps(data)
+    message = ' ' * 10
+    p.mpublish((message,) * 1000)
+#    p.publish(message)
 
 _logger.info("Stopping producer.")
 p.stop()
