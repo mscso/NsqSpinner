@@ -88,7 +88,6 @@ class _MessageHandler(nsq.message_handler.MessageHandler):
 #               handled, we'll receive one, and then have to wait thirty-
 #               seconds until we receive the rest.
 
-# TODO(dustin): This should return an object that we can use to control it.
 c = nsq.consumer.Consumer(
         _TOPIC, 
         _CHANNEL, 

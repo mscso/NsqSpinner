@@ -18,9 +18,12 @@ _logger = logging.getLogger(__name__)
 
 
 class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
-    def __init__(self, consumer, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super(ConsumerCallbacks, self).__init__(*args, **kwargs)
 
+        self.__consumer = None
+
+    def set_consumer(self, consumer):
         self.__consumer = consumer
 
     def __send_sub(self, connection, command):
@@ -218,10 +221,13 @@ class Consumer(object):
         # keep our consumer in order.
 
         if ccallbacks is None:
-            self.__cc = ConsumerCallbacks(self)
+            cc = ConsumerCallbacks()
         else:
             assert issubclass(ccallbacks.__class__, ConsumerCallbacks)
-            self.__cc = ccallbacks
+            cc = ccallbacks
+
+        cc.set_consumer(self)
+        self.__cc = cc
 
         # Set local attributes.
 
