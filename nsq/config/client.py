@@ -20,7 +20,7 @@ MAXIMUM_CONNECT_FAIL_WAIT_S = 120
 MAXIMUM_CONNECT_ATTEMPT_PERIOD_S = 60 * 5
 
 # The blocksize of data to read off the wire.
-BUFFER_READ_CHUNK_SIZE_B = 8192
+BUFFER_READ_CHUNK_SIZE_B = 4096
 
 # The interval to wait if there isn't any data to read.
 READ_THROTTLE_S = .001

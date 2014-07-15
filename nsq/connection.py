@@ -42,7 +42,7 @@ class _Buffer(object):
 
     def __init__(self):
         self.__size = 0
-        self.__buffers = []
+        self.__buffer = ''
         self.__logger = _logger.getChild('Buffer')
 
         self.__logger.setLevel(logging.INFO)
@@ -55,9 +55,9 @@ class _Buffer(object):
     def push(self, bytes):
         self.__logger.debug("Pushing chunk of (%d) bytes into the buffer. "
                             "TOTAL_BYTES=(%d) TOTAL_CHUNKS=(%d)", 
-                            len(bytes), self.__size, len(self.__buffers))
+                            len(bytes), self.__size, len(self.__buffer))
 
-        self.__buffers.append(bytes)
+        self.__buffer += bytes
         self.__size += len(bytes)
 
     def read(self, count):
@@ -66,43 +66,19 @@ class _Buffer(object):
         if count > self.__size:
            raise IOError("Buffers are short: (%d) < (%d)", self.__size, count)
 
-        still_needed_b = count
-        clips = []
+        slice_ = self.__buffer[:count]
+        self.__buffer = self.__buffer[count:]
+        self.__size = len(self.__buffer)
 
-        while still_needed_b > 0:
-            first_buffer_len = len(self.__buffers[0])
-            if first_buffer_len < still_needed_b:
-                self.__logger.debug("Popping chunk of (%d) bytes off the "
-                                    "front of the buffers.", first_buffer_len)
-
-                clips.append(self.__buffers[0])
-                del self.__buffers[0]
-                still_needed_b -= first_buffer_len
-                self.__size -= first_buffer_len
-
-                self.__logger.debug("(%d) chunks remain, of (%d) total bytes.",
-                                    len(self.__buffers), self.__size)
-            else:
-                self.__logger.debug("Splitting (%d) bytes off the front of "
-                                    "first buffer of (%d) bytes.", 
-                                    still_needed_b, first_buffer_len)
-
-                clips.append(self.__buffers[0][:still_needed_b])
-                self.__buffers[0] = self.__buffers[0][still_needed_b:]
-                self.__size -= still_needed_b
-                still_needed_b = 0
-
-        self.__logger.debug("Joining (%d) segments.", len(clips))
-        return ''.join(clips)
+        return slice_
 
     def flush(self):
         """Return all buffered data, and clear the stack."""
 
-        collected = ''.join(self.__buffers)
-        self.__buffers = []
+        (slice_, self.__buffer) = (self.__buffer, '')
         self.__size = 0
 
-        return collected
+        return slice_
 
     @property
     def size(self):
