@@ -44,7 +44,7 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         """
 
         if self.__consumer.original_rdy is None:
-            node_count = len(self.__consumer.master.nodes_s)
+            node_count = len(self.__consumer.nodes_s)
 
             self.__logger_rdy.debug("Calculating RDY: max_in_flight=(%d) "
                                     "node_count=(%d)", 
@@ -105,8 +105,8 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
             try:
                 rdy_this = self.__consumer.original_rdy(
                             connection.node, 
-                            self.__consumer.master.connection_count, 
-                            self.__consumer.master)
+                            self.__consumer.connection_count, 
+                            self.__consumer)
 
                 self.__logger_rdy.debug("Using RDY from callback: (%d)", 
                                         rdy_this)
@@ -127,7 +127,7 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         # of the nodes (they don't all have to have an even slice of 
         # max_in_flight).
 
-        server_features = self.__consumer.master.identify.server_features
+        server_features = self.__consumer.identify.server_features
         max_rdy_count = server_features['max_rdy_count']
         rdy_this = min(max_rdy_count, rdy_this)
 
@@ -198,11 +198,16 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         return self.__consumer
 
 
-class Consumer(object):
+class Consumer(nsq.master.Master):
     def __init__(self, topic, channel, node_collection, max_in_flight, 
                  ccallbacks=None, rdy=None, tls_ca_bundle_filepath=None, 
                  tls_auth_pair=None, compression=False, identify=None, 
                  *args, **kwargs):
+        super(Consumer, self).__init__(
+            connection_ignore_quit=True, 
+            *args, 
+            **kwargs)
+
         # A consumer can interact either with nsqd or nsqlookupd servers 
         # (which render nsqd servers).
         assert issubclass(
@@ -210,14 +215,10 @@ class Consumer(object):
                 (nsq.node_collection.ServerNodes, 
                  nsq.node_collection.LookupNodes)) is True
 
-        # Create connection manager.
-
-        m = nsq.master.Master(connection_ignore_quit=True, *args, **kwargs)
-
         # Translate some of our parameters to IDENTIFY parameters.
 
         self.__configure_identify(
-                m, 
+                self, 
                 tls_ca_bundle_filepath, 
                 tls_auth_pair, 
                 compression, 
@@ -239,7 +240,6 @@ class Consumer(object):
 
         self.__topic = topic
         self.__channel = channel
-        self.__m = m
         self.__connection_context = {}
         self.__max_in_flight = max_in_flight
         self.__original_rdy = rdy
@@ -290,7 +290,7 @@ class Consumer(object):
             """
 
             nodes = self.__node_collection.get_servers(self.__topic)
-            self.__m.set_servers(nodes)
+            self.set_servers(nodes)
 
             if schedule_again is True:
                 gevent.spawn_later(
@@ -305,7 +305,7 @@ class Consumer(object):
 
         # Start the master connection manager.
 
-        self.__m.start(ccallbacks=self.__cc)
+        super(Consumer, self).start(ccallbacks=self.__cc)
 
         # Now, spawn a greenlet to wait on the user to set the quit event.
 
@@ -316,7 +316,7 @@ class Consumer(object):
             self.__quit_ev.wait()
 
             _logger.info("Consumer is being stopped. Stopping master routine.")
-            self.__m.stop()
+            super(Consumer, self).stop()
 
         self.__consume_blocker_g = gevent.spawn(consume_blocker)
 
@@ -325,21 +325,13 @@ class Consumer(object):
         self.__quit_ev.set()
 
         _logger.info("Asking server to close connections.")
-        ce = nsq.connection_election.ConnectionElection(self.__m)
-        ce.command_for_all_connections(lambda command: command.cls())
+        self.connection_election.command_for_all_connections(
+                                    lambda command: command.cls())
 
         _logger.info("Waiting for the consumer to stop.")
         self.__consume_blocker_g.join()
 
         _logger.debug("Consumer stop complete.")
-
-    @property
-    def is_alive(self):
-        """This can be used to determine if the -all- servers disappeared and 
-        left us no recourse.
-        """
-
-        return self.__m.is_alive
 
     @property
     def topic(self):
@@ -348,10 +340,6 @@ class Consumer(object):
     @property
     def channel(self):
         return self.__channel
-
-    @property
-    def master(self):
-        return self.__m
 
     @property
     def connection_context(self):

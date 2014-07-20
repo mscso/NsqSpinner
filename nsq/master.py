@@ -177,6 +177,7 @@ class Master(object):
         # Create message-handler.
 
         if self.__message_handler_cls is not None:
+# TODO(dustin): Move this to another thread if we can mix multithreading with coroutines. 
             self.__message_handler = self.__message_handler_cls(
                                         self.__election, 
                                         ccallbacks)
@@ -273,3 +274,9 @@ class Master(object):
         """If the client is still healthy and active."""
 
         return self.__is_alive
+
+    @property
+    def connection_election(self):
+        """Expose a connection-election object."""
+
+        return self.__election

@@ -93,7 +93,7 @@ c = nsq.consumer.Consumer(
         _TOPIC, 
         _CHANNEL, 
         nc, 
-        2500, 
+        20000, 
         message_handler_cls=_MessageHandler)#, 
 #        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
 #        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
@@ -125,13 +125,15 @@ def run_profile():
     
             n -= 1
 
-#c.start()
-#
-#while c.is_alive:
-#    gevent.sleep(1)
-#
-#if c.is_alive:
-#    _logger.info("Stopping consumer.")
-#    c.stop()
+def run_normal():
+    c.start()
 
-run_profile()
+    while c.is_alive:
+        gevent.sleep(1)
+
+    if c.is_alive:
+        _logger.info("Stopping consumer.")
+        c.stop()
+
+#run_profile()
+run_normal()

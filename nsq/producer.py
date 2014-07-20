@@ -4,7 +4,6 @@ import gevent
 import nsq.master
 import nsq.node_collection
 import nsq.connection
-import nsq.connection_election
 
 _logger = logging.getLogger(__name__)
 
@@ -49,10 +48,8 @@ class Producer(nsq.master.Master):
             identify.update(self.identify.parameters)
             self.identify.update(identify.parameters)
 
-        self.__ce = nsq.connection_election.ConnectionElection(self)
-
     def publish(self, message):
-        self.__ce.elect_connection().pub(self.__topic, message)
+        self.connection_election.elect_connection().pub(self.__topic, message)
 
     def mpublish(self, messages):
-        self.__ce.elect_connection().mpub(self.__topic, messages)
+        self.connection_election.elect_connection().mpub(self.__topic, messages)
