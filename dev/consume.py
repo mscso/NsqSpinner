@@ -129,6 +129,10 @@ def run_normal():
     c.start()
 
     while c.is_alive:
+#        message = ' ' * 10
+#        messages = (message,) * 1000
+#        c.connection_election.elect_connection().mpub(_TOPIC, messages)
+
         gevent.sleep(1)
 
     if c.is_alive:
