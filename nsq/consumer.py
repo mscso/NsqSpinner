@@ -36,7 +36,7 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         self.__consumer = consumer
 
     def __send_sub(self, connection, command):
-        command.sub(connection.topic, connection.channel)
+        command.sub(connection.context.topic, connection.context.channel)
 
     def __send_rdy(self, connection, command):
         """Determine the RDY value, and set it. It can either be a static value
@@ -52,7 +52,7 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
 
         if self.__consumer.original_rdy is None:
             node_count = self.__consumer.get_node_count_for_topic(
-                            connection.topic)
+                            connection.context.topic)
 
             self.__logger_rdy.debug("Calculating RDY: max_in_flight=(%d) "
                                     "node_count=(%d)", 

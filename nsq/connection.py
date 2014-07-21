@@ -89,11 +89,9 @@ class _Buffer(object):
 
 
 class _ManagedConnection(object):
-    def __init__(self, topic, node, connection, identify, message_handler, 
-                 nice_quit_ev, ccallbacks=None, ignore_quit=False,
-                 channel=None):
-        self.__topic = topic
-        self.__channel = channel
+    def __init__(self, context, node, connection, identify, message_handler, 
+                 nice_quit_ev, ccallbacks=None, ignore_quit=False):
+        self.__context = context
 
         self.__node = node
         self.__c = connection
@@ -536,19 +534,14 @@ class _ManagedConnection(object):
         return self.__force_quit_ev
 
     @property
-    def topic(self):
-        return self.__topic
-
-    @property
-    def channel(self):
-        return self.__channel
+    def context(self):
+        return self.__context
 
 
 class Connection(object):
-    def __init__(self, topic, node, identify, message_handler, nice_quit_ev, 
-                 ccallbacks=None, ignore_quit=False, channel=None):
-        self.__topic = topic
-        self.__channel = channel
+    def __init__(self, context, node, identify, message_handler, nice_quit_ev, 
+                 ccallbacks=None, ignore_quit=False):
+        self.__context = context
         self.__node = node
         self.__identify = identify
         self.__message_handler = message_handler
@@ -572,15 +565,14 @@ class Connection(object):
         self.__is_connected = True
 
         self.__mc = _ManagedConnection(
-                        self.__topic,
+                        self.__context,
                         self.__node,
                         c, 
                         self.__identify,
                         self.__message_handler,
                         self.__nice_quit_ev,
                         self.__ccallbacks,
-                        ignore_quit=self.__ignore_quit,
-                        channel=self.__channel)
+                        ignore_quit=self.__ignore_quit)
 
         try:
             self.__mc.interact()

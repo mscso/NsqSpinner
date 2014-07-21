@@ -38,20 +38,17 @@ class Master(object):
     def __start_connection(self, context, node, ccallbacks=None):
         """Start a new connection, and manage it from a new greenlet."""
 
-        (topic, channel) = context
-
-        _logger.debug("Creating connection object: TOPIC=[%s] CHANNEL=[%s] "
-                      "NODE=[%s]", topic, channel, node)
+        _logger.debug("Creating connection object: CONTEXT=[%s] NODE=[%s]", 
+                      context, node)
 
         c = nsq.connection.Connection(
-                topic,
+                context,
                 node, 
                 self.__identify, 
                 self.__message_handler,
                 self.__quit_ev,
                 ccallbacks,
-                ignore_quit=self.__connection_ignore_quit,
-                channel=channel)
+                ignore_quit=self.__connection_ignore_quit)
 
         g = gevent.spawn(c.run)
         self.__connections.append((node, c, g))
@@ -99,10 +96,7 @@ class Master(object):
                                     self.__connections)
 
             connected_node_couplets_s = set([
-                (NODE_CONTEXT(
-                    c.managed_connection.topic, 
-                    c.managed_connection.channel), 
-                 node)
+                (c.managed_connection.context, node)
                 for (node, c, g) 
                 in self.__connections])
 
@@ -268,7 +262,7 @@ class Master(object):
 
     def get_node_count_for_topic(self, topic):
         return len(filter(
-                    lambda nc: nc[0][0] == topic, 
+                    lambda nc: nc.context.topic == topic, 
                     self.__node_couplets_s))
 
     @property

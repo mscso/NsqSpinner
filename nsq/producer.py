@@ -35,8 +35,11 @@ class Producer(nsq.master.Master):
 
             self.set_compression(compression)
 
+        # Technically, any node can have a context. The elements in our current 
+        # context named-tuple just aren't relevant for anything but a consumer.
+        context = nsq.master.NODE_CONTEXT(None, None)
         nodes = node_collection.get_servers(None)
-        self.set_servers([((None, None), server) for server in nodes])
+        self.set_servers([(context, server) for server in nodes])
 
         # If we we're given an identify instance, apply our apply our identify 
         # defaults them, and then replace our identify values -with- them (so we 
