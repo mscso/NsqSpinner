@@ -1,4 +1,5 @@
 import logging
+import collections
 
 import gevent
 import gevent.event
@@ -12,6 +13,9 @@ import nsq.connection_election
 
 _logger = logging.getLogger(__name__)
 
+NODE_CONTEXT = collections.namedtuple('NodeContext', ['topic', 'channel'])
+NODE_COUPLET = collections.namedtuple('NodeCouplet', ['context', 'node'])
+
 
 class Master(object):
     """This class is responsible to orchestrating connections and greenlets 
@@ -22,7 +26,7 @@ class Master(object):
         self.__connection_ignore_quit = connection_ignore_quit
         self.__message_handler_cls = message_handler_cls
 
-        self.__nodes_s = set()
+        self.__node_couplets_s = set()
         self.__identify = nsq.identify.Identify().set_feature_negotiation()
         self.__connections = []
         self.__ready_ev = gevent.event.Event()
@@ -31,18 +35,23 @@ class Master(object):
         self.__is_alive = False
         self.__message_handler = None
 
-    def __start_connection(self, node, ccallbacks=None):
+    def __start_connection(self, context, node, ccallbacks=None):
         """Start a new connection, and manage it from a new greenlet."""
 
-        _logger.debug("Creating connection object: [%s]", node)
+        (topic, channel) = context
+
+        _logger.debug("Creating connection object: TOPIC=[%s] CHANNEL=[%s] "
+                      "NODE=[%s]", topic, channel, node)
 
         c = nsq.connection.Connection(
+                topic,
                 node, 
                 self.__identify, 
                 self.__message_handler,
                 self.__quit_ev,
                 ccallbacks,
-                ignore_quit=self.__connection_ignore_quit)
+                ignore_quit=self.__connection_ignore_quit,
+                channel=channel)
 
         g = gevent.spawn(c.run)
         self.__connections.append((node, c, g))
@@ -89,15 +98,20 @@ class Master(object):
                                     lambda (n, c, g): not g.ready(), 
                                     self.__connections)
 
-            connected_nodes_s = set([node 
-                                     for (node, c, g) 
-                                     in self.__connections])
+            connected_node_couplets_s = set([
+                (NODE_CONTEXT(
+                    c.managed_connection.topic, 
+                    c.managed_connection.channel), 
+                 node)
+                for (node, c, g) 
+                in self.__connections])
 
             # Warn if there are any still-active connections that are no longer 
             # being advertised (probably where we were given some lookup servers 
             # that have dropped this particular *nsqd* server).
 
-            lingering_nodes_s = connected_nodes_s - self.__nodes_s
+            lingering_nodes_s = connected_node_couplets_s - \
+                                self.__node_couplets_s
 
             if lingering_nodes_s:
                 _logger.warning("Server(s) are connected but no longer "
@@ -105,14 +119,16 @@ class Master(object):
 
             # Connect any servers that don't currently have a connection.
 
-            unused_nodes_s = self.__nodes_s - connected_nodes_s
+            unused_nodes_s = self.__node_couplets_s - connected_node_couplets_s
 
-            for node in unused_nodes_s:
-                _logger.info("Trying to connect unconnected server: %s", node)
-                self.__start_connection(node, ccallbacks)
+            for (context, node) in unused_nodes_s:
+                _logger.info("Trying to connect unconnected server: "
+                             "CONTEXT=[%s] NODE=[%s]", context, node)
+
+                self.__start_connection(context, node, ccallbacks)
             else:
                 # Are there both no unused servers and no connected servers?
-                if not connected_nodes_s:
+                if not connected_node_couplets_s:
                     _logger.error("All servers have gone away. Stopping "
                                   "client.")
 
@@ -182,10 +198,10 @@ class Master(object):
                                         self.__election, 
                                         ccallbacks)
 
-        # Spawn connections to all of the servers.
+        # Spawn the initial connections to all of the servers.
 
-        for node in self.__nodes_s:
-            self.__start_connection(node, ccallbacks)
+        for (context, node) in self.__node_couplets_s:
+            self.__start_connection(context, node, ccallbacks)
 
         # Wait for at least one connection to the server.
         self.__wait_for_one_server_connection()
@@ -206,23 +222,25 @@ class Master(object):
 
         self.__is_alive = False
 
-    def set_servers(self, nodes):
-        """Set the current collection of servers."""
+    def set_servers(self, node_couplets):
+        """Set the current collection of servers. The entries are 2-tuples of 
+        contexts and nodes.
+        """
 
-        nodes_s = set(nodes)
+        node_couplets_s = set(node_couplets)
 
-        if nodes_s != self.__nodes_s:
+        if node_couplets_s != self.__node_couplets_s:
             _logger.info("Servers have changed. NEW: %s REMOVED: %s", 
-                         nodes_s - self.__nodes_s, 
-                         self.__nodes_s - nodes_s)
+                         node_couplets_s - self.__node_couplets_s, 
+                         self.__node_couplets_s - node_couplets_s)
 
         # Since no servers means no connection greenlets, and the discover 
         # greenlet is technically scheduled and not running between 
         # invocations, this should successfully terminate the process.
-        if not nodes_s:
+        if not node_couplets_s:
             raise EnvironmentError("No servers available.")
 
-        self.__nodes_s = nodes_s
+        self.__node_couplets_s = node_couplets_s
 
     def set_compression(self, specific=None):
         if specific == 'snappy' or specific is None:
@@ -248,6 +266,11 @@ class Master(object):
         _logger.info("Waiting for connection manager to stop.")
         self.__manage_g.join()
 
+    def get_node_count_for_topic(self, topic):
+        return len(filter(
+                    lambda nc: nc[0][0] == topic, 
+                    self.__node_couplets_s))
+
     @property
     def identify(self):
         return self.__identify
@@ -263,11 +286,6 @@ class Master(object):
         """
         
         return len(self.__connections)
-
-    @property
-    def nodes_s(self):
-        """This describes the servers that we know about."""
-        return self.__nodes_s
 
     @property
     def is_alive(self):

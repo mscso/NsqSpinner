@@ -1,6 +1,9 @@
 This project is in active development, and the documentation is evolving as 
 individual pieces.
 
+This project encapsulates connection management, heartbeat management, and 
+dispatching incoming messages (for consumers) to handlers.
+
 
 --------
 Features
@@ -27,6 +30,12 @@ Features
 
 - Messages are marked as "finished" with the server after being processed 
   unless we're configured not to.
+
+- For consumers, you can prescribe a list of topic and channel couplets, and 
+  connections will be made to every server and subscribed according to each.
+  If lookup servers are used, servers are discovered and connected for each 
+  topic in the list (if no lookup servers, then we assume that all servers
+  given support all topics).
 
 
 -----------------------
@@ -92,8 +101,7 @@ Create the consumer object::
     _MAX_IN_FLIGHT = 500
 
     c = nsq.consumer.Consumer(
-            _TOPIC, 
-            _CHANNEL, 
+            [(_TOPIC, _CHANNEL)], 
             nc, 
             _MAX_IN_FLIGHT, 
             message_handler_cls=_MessageHandler)

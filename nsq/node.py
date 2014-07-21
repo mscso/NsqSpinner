@@ -30,10 +30,6 @@ class Node(object):
     def __ne__(self, o):
         return not (self == o)
 
-    def __str__(self):
-        return ('<NODE [%s] [%s]>' % 
-                (self.__class__.__name__, self.__server_host))
-
     def connect(self, nice_quit_ev):
         raise NotImplementedError()
 
@@ -59,6 +55,9 @@ class Node(object):
 
 class DiscoveredNode(Node):
     """Represents a node that we found via lookup servers."""
+
+    def __repr__(self):
+        return ('<DiscoveredNode [%s]>' % (self.server_host,))
 
     def connect(self, nice_quit_ev):
         """Connect the server. We expect this to implement backoff and all 
@@ -101,6 +100,9 @@ class DiscoveredNode(Node):
 
 class ServerNode(Node):
     """Represents a node that was explicitly prescribed."""
+
+    def __repr__(self):
+        return ('<ServerNode [%s]>' % (self.server_host,))
 
     def connect(self, nice_quit_ev):
         """Connect the server. We expect this to implement connection logistics 

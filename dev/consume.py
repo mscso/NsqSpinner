@@ -90,8 +90,7 @@ class _MessageHandler(nsq.message_handler.MessageHandler):
 #               seconds until we receive the rest.
 
 c = nsq.consumer.Consumer(
-        _TOPIC, 
-        _CHANNEL, 
+        [(_TOPIC, _CHANNEL)],
         nc, 
         20000, 
         message_handler_cls=_MessageHandler)#, 

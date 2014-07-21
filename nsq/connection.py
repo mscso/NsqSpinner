@@ -89,8 +89,12 @@ class _Buffer(object):
 
 
 class _ManagedConnection(object):
-    def __init__(self, node, connection, identify, message_handler, 
-                 nice_quit_ev, ccallbacks=None, ignore_quit=False):
+    def __init__(self, topic, node, connection, identify, message_handler, 
+                 nice_quit_ev, ccallbacks=None, ignore_quit=False,
+                 channel=None):
+        self.__topic = topic
+        self.__channel = channel
+
         self.__node = node
         self.__c = connection
         self.__c_peer = connection.getpeername()
@@ -531,10 +535,20 @@ class _ManagedConnection(object):
     def force_quit_ev(self):
         return self.__force_quit_ev
 
+    @property
+    def topic(self):
+        return self.__topic
+
+    @property
+    def channel(self):
+        return self.__channel
+
 
 class Connection(object):
-    def __init__(self, node, identify, message_handler, nice_quit_ev, 
-                 ccallbacks=None, ignore_quit=False):
+    def __init__(self, topic, node, identify, message_handler, nice_quit_ev, 
+                 ccallbacks=None, ignore_quit=False, channel=None):
+        self.__topic = topic
+        self.__channel = channel
         self.__node = node
         self.__identify = identify
         self.__message_handler = message_handler
@@ -558,13 +572,15 @@ class Connection(object):
         self.__is_connected = True
 
         self.__mc = _ManagedConnection(
+                        self.__topic,
                         self.__node,
                         c, 
                         self.__identify,
                         self.__message_handler,
                         self.__nice_quit_ev,
                         self.__ccallbacks,
-                        ignore_quit=self.__ignore_quit)
+                        ignore_quit=self.__ignore_quit,
+                        channel=self.__channel)
 
         try:
             self.__mc.interact()

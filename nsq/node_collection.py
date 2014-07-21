@@ -12,6 +12,10 @@ class ServerNodes(_Nodes):
         self.__server_hosts = server_hosts
 
     def get_servers(self, topic):
+        """We're assuming that the static list of servers can serve the given 
+        topic, since we have to preexisting knowledge about them.
+        """
+
         return (nsq.node.ServerNode(sh) for sh in self.__server_hosts)
 
 

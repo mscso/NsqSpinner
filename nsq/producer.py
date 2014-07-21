@@ -7,6 +7,9 @@ import nsq.connection
 
 _logger = logging.getLogger(__name__)
 
+# TODO(dustin): Allow a list of topics, and to start connections to all servers 
+#               for each. Each message send will require a topic.
+
 
 class Producer(nsq.master.Master):
     def __init__(self, topic, node_collection, tls_ca_bundle_filepath=None, 
@@ -38,7 +41,7 @@ class Producer(nsq.master.Master):
             self.set_compression(compression)
 
         nodes = node_collection.get_servers(topic)
-        self.set_servers(nodes)
+        self.set_servers([((topic, None), server) for server in nodes])
 
         # If we we're given an identify instance, apply our apply our identify 
         # defaults them, and then replace our identify values -with- them (so we 

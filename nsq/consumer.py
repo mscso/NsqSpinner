@@ -14,7 +14,14 @@ import nsq.connection
 _logger = logging.getLogger(__name__)
 
 # TODO(dustin): We still need to consider "backoff" from the perspective of
-#               message processing (the "Backoff" section).
+#               message processing (the "Backoff" section):
+#
+#               Exponential Backoff - when message processing fails the reader 
+#               library will delay the receipt of additional messages for a 
+#               duration that scales exponentially based on the # of 
+#               consecutive failures. The opposite sequence happens when a 
+#               reader is in a backoff state and begins to process 
+#               successfully, until 0.
 
 
 class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
@@ -29,7 +36,7 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         self.__consumer = consumer
 
     def __send_sub(self, connection, command):
-        command.sub(self.__consumer.topic, self.__consumer.channel)
+        command.sub(connection.topic, connection.channel)
 
     def __send_rdy(self, connection, command):
         """Determine the RDY value, and set it. It can either be a static value
@@ -44,7 +51,8 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         """
 
         if self.__consumer.original_rdy is None:
-            node_count = len(self.__consumer.nodes_s)
+            node_count = self.__consumer.get_node_count_for_topic(
+                            connection.topic)
 
             self.__logger_rdy.debug("Calculating RDY: max_in_flight=(%d) "
                                     "node_count=(%d)", 
@@ -198,8 +206,25 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
         return self.__consumer
 
 
+# TODO(dustin): We need to be able to subscribe to multiple topics/channels.
+#
+# 1. For each topic, do a lookup of servers.
+# 2. Maintain a catalog of which topics go to which servers, fed by the 
+#    nsqlookup servers.)
+# 3. Our nodes_s set should have (server, topic) members, whether we get the 
+#    servers from nsqlookupd or were given a list of nsqd servers rather than 
+#    nsqlookup servers
+# 4. When we initialize a connection, we'll need a topic name, too (only the
+#    connection routine knows which topic that connection is supposed to
+#    subscribe to).
+
+
 class Consumer(nsq.master.Master):
-    def __init__(self, topic, channel, node_collection, max_in_flight, 
+    """Main consumer process.
+    context_list is a list of 2-tuples (topic, channel).
+    """
+
+    def __init__(self, context_list, node_collection, max_in_flight, 
                  ccallbacks=None, rdy=None, tls_ca_bundle_filepath=None, 
                  tls_auth_pair=None, compression=False, identify=None, 
                  *args, **kwargs):
@@ -238,8 +263,7 @@ class Consumer(nsq.master.Master):
 
         # Set local attributes.
 
-        self.__topic = topic
-        self.__channel = channel
+        self.__context_list = context_list
         self.__connection_context = {}
         self.__max_in_flight = max_in_flight
         self.__original_rdy = rdy
@@ -289,7 +313,15 @@ class Consumer(nsq.master.Master):
             """This runs in its own greenlet, and maintains a list of servers.
             """
 
-            nodes = self.__node_collection.get_servers(self.__topic)
+            nodes = set()
+            for topic, channel in self.__context_list:
+                context = nsq.master.NODE_CONTEXT(topic, channel)
+                context_nodes = [nsq.master.NODE_COUPLET(context, server) 
+                                 for server 
+                                 in self.__node_collection.get_servers(topic)]
+
+                nodes.update(context_nodes)
+
             self.set_servers(nodes)
 
             if schedule_again is True:
@@ -332,14 +364,6 @@ class Consumer(nsq.master.Master):
         self.__consume_blocker_g.join()
 
         _logger.debug("Consumer stop complete.")
-
-    @property
-    def topic(self):
-        return self.__topic
-
-    @property
-    def channel(self):
-        return self.__channel
 
     @property
     def connection_context(self):
