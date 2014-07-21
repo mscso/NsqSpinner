@@ -38,14 +38,12 @@ _logger = logging.getLogger(__name__)
 
 nc = nsq.node_collection.ServerNodes(server_nodes)
 
-
 #i = nsq.identify.Identify()
 #i.\
 #    client_id('11111').\
 #    heartbeat_interval(10 * 1000)
 
 p = nsq.producer.Producer(
-        _TOPIC, 
         nc)#, 
 #        tls_ca_bundle_filepath='/Users/dustin/ssl/ca_test/ca.crt.pem',
 #        tls_auth_pair=('/Users/dustin/ssl/ca_test/client.key.pem', 
@@ -63,8 +61,8 @@ for i in range(0, 1000000, 1000):
 #    data = { 'type': 'dummy' }
 #    message = json.dumps(data)
     message = ' ' * 10
-    p.mpublish((message,) * 1000)
-#    p.publish(message)
+    p.mpublish(_TOPIC, (message,) * 1000)
+#    p.publish(_TOPIC, message)
 
 _logger.info("Stopping producer.")
 p.stop()
