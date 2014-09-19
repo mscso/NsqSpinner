@@ -10,6 +10,7 @@ import nsq.node_collection
 import nsq.connection
 import nsq.identify
 import nsq.connection_election
+import nsq.message_handler
 
 _logger = logging.getLogger(__name__)
 
@@ -23,6 +24,11 @@ class Master(object):
     """
 
     def __init__(self, connection_ignore_quit=False, message_handler_cls=None):
+        assert message_handler_cls is None or \
+               issubclass(
+                message_handler_cls, 
+                nsq.message_handler.MessageHandler) is True
+
         self.__connection_ignore_quit = connection_ignore_quit
         self.__message_handler_cls = message_handler_cls
 

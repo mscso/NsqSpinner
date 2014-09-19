@@ -39,13 +39,18 @@ class MessageHandler(object):
 
     def handle(self, connection, message):
         def finish(message):
-            self.__ce.elect_connection().fin(message.message_id)
+            _logger.debug("Marking message as finished: [%s]", 
+                          message.message_id)
+
+            connection.command.fin(message.message_id)
 
         self.message_received(connection, message)
 
+        _logger.debug("Classifying message: [%s]", message.message_id)
+
         try:
             (message_class, classify_context) = \
-                self.classify_message(message)
+                self.classify_message(connection, message)
         except Exception as e:
             if nsq.config.handle.FINISH_IF_CLASSIFY_ERROR is True:
                 _logger.exception("Could not classify message [%s]. We're "
@@ -62,9 +67,10 @@ class MessageHandler(object):
                                   message.message_id, e.__class__.__name__, 
                                   str(e))
 
-                return
+            return
 
-        _logger.debug("Message classified: [%s]", message_class)
+        _logger.debug("Message [%s] classified: [%s]", 
+                      message.message_id, message_class)
 
         handle = getattr(self, 'handle_' + message_class, None)
 
@@ -73,11 +79,14 @@ class MessageHandler(object):
                         self.default_message_handler, 
                         message_class)
 
+        _logger.debug("Handling message: [%s]", message.message_id)
+
         try:
             handle(connection, message, classify_context)
         except MessageManuallyFinishedException:
             pass
         else:
+            _logger.debug("Finishing message: [%s]", message)
             finish(message)
 
         if nsq.config.handle.AUTO_FINISH_MESSAGES is True:
@@ -113,5 +122,5 @@ class MessageHandler(object):
 
         return self.__ce
 
-    def classify_message(self, message):
+    def classify_message(self, connection, message):
         raise NotImplementedError()

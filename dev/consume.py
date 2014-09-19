@@ -64,7 +64,7 @@ class _MessageHandler(nsq.message_handler.MessageHandler):
 #                         message.body)
 #            return
 
-    def classify_message(self, message):
+    def classify_message(self, connection, message):
 #        return (self.__decoded['type'], self.__decoded)
         return ('dummy', None)
 
