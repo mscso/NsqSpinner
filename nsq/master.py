@@ -57,6 +57,22 @@ class Master(object):
                 ignore_quit=self.__connection_ignore_quit)
 
         g = gevent.spawn(c.run)
+
+        # Now, wait for the thread to finish the connection.
+
+        timeout_s = nsq.config.client.NEW_CONNECTION_NEGOTIATE_TIMEOUT_S
+        if c.connected_ev.wait(timeout_s) is False:
+            _logger.error("New connection to server [%s] timed-out. Cleaning-"
+                          "up thread.", node)
+
+            g.kill()
+            g.join()
+
+            # We'll try again on the next audit.
+
+            raise EnvironmentError("Connection to server [%s] failed." % 
+                                   (node,))
+
         self.__connections.append((node, c, g))
 
     def __wait_for_one_server_connection(self):
@@ -159,8 +175,6 @@ class Master(object):
         general.
         """
 
-        connection_greenlets = [g for (n, c, g) in self.__connections]
-
         interval_s = nsq.config.client.CONNECTION_CLOSE_AUDIT_WAIT_S
         graceful_wait_s = nsq.config.client.CONNECTION_QUIT_CLOSE_TIMEOUT_S
         graceful = False
@@ -210,7 +224,7 @@ class Master(object):
         self.__is_alive = True
         self.__ready_ev.set()
 
-        # Loop, and maintain all connections. This exists when the quit event 
+        # Loop, and maintain all connections. This exits when the quit event 
         # is set.
         self.__audit_connections(ccallbacks)
 

@@ -485,6 +485,9 @@ class _ManagedConnection(object):
                self.__nice_quit_ev.is_set() is False) and \
               self.__force_quit_ev.is_set() is False:
 
+# TODO(dustin): The quit-signals aren't being properly set after a producer 
+#               stop.
+
 # TODO(dustin): Consider breaking the loop if we haven't yet retried to 
 #               reconnect a couple of times. A connection will automatically be 
 #               reattempted.
@@ -510,6 +513,10 @@ class _ManagedConnection(object):
         while (self.__ignore_quit is True or \
                self.__nice_quit_ev.is_set() is False) and \
               self.__force_quit_ev.is_set() is False:
+
+# TODO(dustin): The quit-signals aren't being properly set after a producer 
+#               stop.
+
 # TODO(dustin): Consider breaking the loop if we haven't yet retried to 
 #               reconnect a couple of times. A connection will automatically be 
 #               reattempted.
@@ -550,6 +557,7 @@ class Connection(object):
         self.__nice_quit_ev = nice_quit_ev
         self.__ccallbacks = ccallbacks
         self.__ignore_quit = ignore_quit
+        self.__connected_ev = gevent.event.Event()
 
     def __connect(self):
         _logger.debug("Connecting node: [%s]", self.__node)
@@ -562,8 +570,6 @@ class Connection(object):
         _logger.debug("Node connected and being handed-off to be managed: "
                       "[%s]", self.__node)
 
-        self.__is_connected = True
-
         self.__mc = _ManagedConnection(
                         self.__context,
                         self.__node,
@@ -574,11 +580,19 @@ class Connection(object):
                         self.__ccallbacks,
                         ignore_quit=self.__ignore_quit)
 
+        _logger.debug("Connection established.")
+
+        self.__is_connected = True
+        self.__connected_ev.set()
+
         try:
             self.__mc.interact()
         except nsq.exceptions.NsqConnectGiveUpError:
             raise
         finally:
+            _logger.debug("Connection severed.")
+
+            self.__connected_ev.clear()
             self.__is_connected = False
 
     def run(self):
@@ -597,5 +611,12 @@ class Connection(object):
         return self.__is_connected
 
     @property
+    def connected_ev(self):
+        return self.__connected_ev
+
+    @property
     def managed_connection(self):
+# TODO(dustin): Debugging. We've seen this happen.
+        assert self.__mc is not None
+
         return self.__mc

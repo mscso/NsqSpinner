@@ -46,3 +46,7 @@ CONNECTION_CLOSE_AUDIT_WAIT_S = .5
 # The amount of time to wait for our connections to close when we're trying to 
 # quit before we give up.
 CONNECTION_QUIT_CLOSE_TIMEOUT_S = 10
+
+# The maximum amount of time to wait for the connection-thread to establish a 
+# connection before killing it and waiting for it to be reattempted.
+NEW_CONNECTION_NEGOTIATE_TIMEOUT_S = 10

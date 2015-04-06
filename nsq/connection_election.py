@@ -26,6 +26,7 @@ class ConnectionElection(object):
                                   connection_count
 
         elected = connections[self.__connection_index]
+
         elected_name = elected
         self.__last_connection_name = elected_name
 
