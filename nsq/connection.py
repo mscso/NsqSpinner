@@ -287,7 +287,7 @@ class _ManagedConnection(object):
                 break
         
         if data:
-            self.__c.send(data)
+            self.__c.sendall(data)
 
     def __send_command_primitive(
             self, 
