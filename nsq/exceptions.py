@@ -8,3 +8,6 @@ class NsqConnectGiveUpError(NsqException):
 
 class NsqErrorResponseError(NsqException):
     pass
+
+class NsqDisconnect(Exception):
+	pass

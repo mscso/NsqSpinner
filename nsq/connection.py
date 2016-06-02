@@ -379,6 +379,8 @@ class _ManagedConnection(object):
             
             if data:
                 self.__buffer.push(data)
+            else:
+                raise nsq.exceptions.NsqDisconnect()
 
         return self.__buffer.read(length)
 
@@ -398,7 +400,8 @@ class _ManagedConnection(object):
                 data = ''
 
             if not data:
-                continue
+                #continue
+                raise nsq.exceptions.NsqDisconnect()
 
             data_filtered = self.__filter_incoming_data(data)
             filtered_bytes = len(data_filtered)
@@ -523,6 +526,8 @@ class _ManagedConnection(object):
 
             try:
                 self.__read_frame()
+            except nsq.exceptions.NsqDisconnect:
+                self.__force_quit_ev.set()
             except errno.EAGAIN:
                 gevent.sleep(nsq.config.client.READ_THROTTLE_S)
 
