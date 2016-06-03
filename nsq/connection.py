@@ -374,13 +374,13 @@ class _ManagedConnection(object):
 
             # May raise EAGAIN. Caught above.
             data = self.__c.recv(nsq.config.client.BUFFER_READ_CHUNK_SIZE_B)
+            if not data:
+                raise nsq.exceptions.NsqDisconnect()
 
             data = self.__filter_incoming_data(data)
             
             if data:
                 self.__buffer.push(data)
-            else:
-                raise nsq.exceptions.NsqDisconnect()
 
         return self.__buffer.read(length)
 
