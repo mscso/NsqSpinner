@@ -528,6 +528,8 @@ class _ManagedConnection(object):
                 self.__read_frame()
             except nsq.exceptions.NsqDisconnect:
                 self.__force_quit_ev.set()
+            except nsq.exceptions.NsqErrorResponseError:
+                self.__force_quit_ev.set()
             except errno.EAGAIN:
                 gevent.sleep(nsq.config.client.READ_THROTTLE_S)
 
