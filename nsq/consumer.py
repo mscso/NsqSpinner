@@ -105,7 +105,7 @@ class ConsumerCallbacks(nsq.connection_callbacks.ConnectionCallbacks):
                     command_elected = nsq.command.Command(elected_connection)
                     command_elected.rdy(1)
                 else:
-                    self.__logger.debug("No sleeping connections. We got the "
+                    self.__logger_rdy.debug("No sleeping connections. We got the "
                                         "short stick: [%s]", connection)
 
                 rdy_this = 0
